@@ -1,0 +1,149 @@
+"""Labeled evaluation sets.
+
+One JSON object per line with `state`, `question`, and `label`, optionally `soft_label`.
+`state` and `question` may be JSON values or JSON-encoded strings, which is the
+jev-bench convention. `label` is the option key for choice, the level index as a
+string for score, and "0" or "1" for noul.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from moelar.calibration import Calibrator, brier, coverage_at_error, ece, fit_temperature
+from moelar.engine import Engine
+from moelar.primitives import softmax
+from moelar.schema import SystemOneRequest
+
+
+@dataclass
+class Example:
+    state: Any
+    question: dict[str, Any]
+    label: str
+    soft_label: dict[str, float] | None = None
+
+
+def _maybe_json(value: Any) -> Any:
+    """Decode a JSON-encoded string (object, array, or quoted string) when that is what it is."""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped[:1] in '{["':
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                return value
+    return value
+
+
+def read_examples(path: str | Path) -> Iterator[Example]:
+    with Path(path).open() as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            raw = json.loads(line)
+            question = _maybe_json(raw["question"])
+            if not isinstance(question, dict):
+                raise ValueError("question must be a JSON object")
+            soft = _maybe_json(raw.get("soft_label"))
+            yield Example(
+                state=_maybe_json(raw["state"]),
+                question=question,
+                label=str(raw["label"]),
+                soft_label=soft if isinstance(soft, dict) else None,
+            )
+
+
+@dataclass
+class EvalResult:
+    count: int
+    accuracy: float
+    ece: float
+    brier: float
+    coverage_at_5pct: float
+    threshold_at_5pct: float
+    per_kind: dict[str, dict[str, float]]
+    ms_per_example: float = 0.0
+    temperatures: dict[str, float] | None = None
+
+
+def _target_vector(example: Example, keys: tuple[str, ...]) -> np.ndarray:
+    if example.soft_label:
+        vec = np.asarray([float(example.soft_label.get(k, 0.0)) for k in keys])
+        total = vec.sum()
+        return vec / total if total > 0 else vec
+    return np.asarray([1.0 if k == example.label else 0.0 for k in keys])
+
+
+def _noul_keys_label(label: str) -> str:
+    return "yes" if label in {"1", "true", "yes"} else "no"
+
+
+def collect(engine: Engine, examples: list[Example]) -> list[tuple[Example, str, tuple[str, ...], np.ndarray]]:
+    rows = []
+    for example in examples:
+        request = SystemOneRequest(state=example.state, questions={"q": example.question})
+        kind = request.questions["q"].type
+        keys, logits = engine.raw_logits(example.state, "q", request.questions["q"])
+        rows.append((example, kind, keys, logits))
+    return rows
+
+
+def evaluate(engine: Engine, examples: list[Example]) -> EvalResult:
+    started = time.perf_counter()
+    collected = collect(engine, examples)
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    confidences, correct, probs, targets = [], [], [], []
+    per_kind: dict[str, list[bool]] = {}
+    for example, kind, keys, logits in collected:
+        p = softmax(logits, engine.calibrator.temperature_for(kind))
+        label = _noul_keys_label(example.label) if kind in {"noul", "multi"} else example.label
+        target = _target_vector(example, keys) if kind not in {"noul", "multi"} else np.asarray(
+            [1.0 if label == "yes" else 0.0, 0.0 if label == "yes" else 1.0]
+        )
+        predicted = keys[int(p.argmax())]
+        hit = predicted == label
+        confidences.append(float(p.max()))
+        correct.append(hit)
+        probs.append(p)
+        targets.append(target)
+        per_kind.setdefault(kind, []).append(hit)
+    conf = np.asarray(confidences)
+    hits = np.asarray(correct, dtype=float)
+    cov, thr = coverage_at_error(conf, hits, 0.05)
+    return EvalResult(
+        count=len(collected),
+        accuracy=float(hits.mean()) if len(hits) else 0.0,
+        ece=ece(conf, hits),
+        brier=brier(probs, targets),
+        coverage_at_5pct=cov,
+        threshold_at_5pct=thr,
+        per_kind={k: {"count": len(v), "accuracy": float(np.mean(v))} for k, v in per_kind.items()},
+        ms_per_example=elapsed_ms / max(len(collected), 1),
+        temperatures={k: engine.calibrator.temperature_for(k) for k in sorted({c[1] for c in collected})},
+    )
+
+
+def calibrate(engine: Engine, examples: list[Example], source: str | None = None) -> Calibrator:
+    collected = collect(engine, examples)
+    calibrator = Calibrator(fitted_on=source)
+    by_kind: dict[str, tuple[list[np.ndarray], list[np.ndarray]]] = {}
+    for example, kind, keys, logits in collected:
+        if kind in {"noul", "multi"}:
+            label = _noul_keys_label(example.label)
+            target = np.asarray([1.0 if label == "yes" else 0.0, 0.0 if label == "yes" else 1.0])
+        else:
+            target = _target_vector(example, keys)
+        logits_list, targets_list = by_kind.setdefault(kind, ([], []))
+        logits_list.append(np.asarray(logits))
+        targets_list.append(target)
+    for kind, (logits_list, targets_list) in by_kind.items():
+        calibrator.temperatures[kind] = fit_temperature(logits_list, targets_list)
+    return calibrator
