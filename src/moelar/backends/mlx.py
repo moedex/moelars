@@ -129,21 +129,28 @@ class MLXBackend(Backend):
 
     def _forward(self, ids: list[int], cache: Any) -> np.ndarray:
         mx = self._mx
-        logits = self.model(mx.array(ids)[None], cache=cache)
+        logits = self.model(mx.array(ids, dtype=mx.int32)[None], cache=cache)
         last = logits[0, -1, :]
         mx.eval(last)
         return np.asarray(last.astype(mx.float32))
 
+    @staticmethod
+    def _detach(state: Any) -> Any:
+        # ArraysCache (the Gated DeltaNet layers in Qwen3.5) hands out and adopts its internal
+        # list, then writes through `cache[i] = ...`; copying the list keeps the snapshot
+        # untouched by the rows that restore it. KV tuples rebind on append and need no copy.
+        return list(state) if isinstance(state, list) else state
+
     def _snapshot(self, cache: Any) -> list[Any] | None:
         try:
-            return [(c.state, getattr(c, "meta_state", None)) for c in cache]
+            return [(self._detach(c.state), getattr(c, "meta_state", None)) for c in cache]
         except Exception:  # pragma: no cover - cache type without state API
             return None
 
     def _restore(self, snapshot: list[Any]) -> Any:
         cache = self._make_cache(self.model)
         for c, (state, meta) in zip(cache, snapshot, strict=True):
-            c.state = state
+            c.state = self._detach(state)
             if meta is not None and hasattr(c, "meta_state"):
                 c.meta_state = meta
         return cache
@@ -163,7 +170,7 @@ class MLXBackend(Backend):
     def _hidden_forward(self, ids: list[int], cache: Any):
         """Run the transformer body only; returns (T, hidden) for these positions."""
         mx = self._mx
-        hidden = self._text.model(mx.array(ids)[None], cache=cache)[0]
+        hidden = self._text.model(mx.array(ids, dtype=mx.int32)[None], cache=cache)[0]
         mx.eval(hidden)
         return hidden
 
@@ -172,9 +179,11 @@ class MLXBackend(Backend):
     ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         mx = self._mx
         prefix_ids = self._encode(prefix)
-        prefix_cache = self._make_cache(self.model)
-        self._forward(prefix_ids, prefix_cache)
-        snapshot = self._snapshot(prefix_cache)
+        snapshot = None
+        if prefix_ids:
+            prefix_cache = self._make_cache(self.model)
+            self._forward(prefix_ids, prefix_cache)
+            snapshot = self._snapshot(prefix_cache)
 
         results = []
         for suffix, row_labels in zip(suffixes, labels, strict=True):

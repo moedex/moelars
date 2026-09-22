@@ -20,6 +20,7 @@ def main() -> int:
     backend = MLXBackend(sys.argv[1])
     print("hidden_size", backend.hidden_size)
     question = ChoiceQuestion(
+        type="choice",
         instructions="Which team should handle this?",
         criteria={"billing": "Payments, payouts", "technical": "Bugs, outages", "sales": "Pricing, demos"},
     )

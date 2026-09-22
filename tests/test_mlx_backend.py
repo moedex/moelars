@@ -51,3 +51,43 @@ def test_label_rows_rejects_multi_token_labels():
                                        model=SimpleNamespace(embed_tokens=SimpleNamespace(weight=mx.zeros((128, 4))))))
     with pytest.raises(ValueError):
         backend.label_rows(["AB"])
+
+
+def test_restored_snapshot_survives_writes_from_earlier_rows():
+    """Gated DeltaNet layers write through `cache[i] = ...`; one row must not leak into the next."""
+    from mlx_lm.models.cache import ArraysCache, KVCache
+
+    backend = _backend(SimpleNamespace())
+    backend._make_cache = lambda model: [ArraysCache(size=2), KVCache()]
+    prefix = backend._make_cache(None)
+    prefix[0][0], prefix[0][1] = mx.zeros((1, 3)), mx.ones((1, 3))
+    prefix[1].update_and_fetch(mx.zeros((1, 1, 2, 4)), mx.zeros((1, 1, 2, 4)))
+    snapshot = backend._snapshot(prefix)
+
+    first = backend._restore(snapshot)
+    first[0][1] = mx.full((1, 3), 7.0)
+    first[1].update_and_fetch(mx.ones((1, 1, 1, 4)), mx.ones((1, 1, 1, 4)))
+    second = backend._restore(snapshot)
+    assert np.allclose(np.asarray(second[0][1]), 1.0)
+    assert second[1].offset == 2
+
+
+def test_empty_prefix_skips_the_prefill():
+    """`mx.array([])` is float; an empty prefix must not reach the embedding gather."""
+    calls = []
+
+    def model(inputs, cache=None):
+        assert inputs.dtype == mx.int32
+        calls.append(inputs.shape[1])
+        return mx.broadcast_to(mx.arange(128, dtype=mx.float32), (1, inputs.shape[1], 128))
+
+    class Tokenizer(_Tokenizer):
+        def encode(self, text, add_special_tokens=False):
+            return super().encode(text) if text else []
+
+    backend = _backend(model)
+    backend.tokenizer = Tokenizer()
+    backend._make_cache = lambda model: []
+    (z,) = backend.label_logits("", ["xy"], [("A", "B")])
+    assert calls == [2]
+    assert np.allclose(z, [ord("A"), ord("B")])
