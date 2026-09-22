@@ -1,0 +1,1065 @@
+{
+  "model": "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+  "backend": "mlx",
+  "rows_per_split": 200,
+  "version": "0.0.1",
+  "head": "checkpoints/pointer_head_v2.npz",
+  "configs": {
+    "banking77": {
+      "k": 77,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.705,
+        "ece": 0.1702871129637126,
+        "brier": 0.46610491840464563,
+        "coverage_at_5pct": 0.025,
+        "threshold_at_5pct": 0.9969061181290421,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.705
+          }
+        },
+        "ms_per_example": 259.91568937500233,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.705,
+        "ece": 0.07737930802845486,
+        "brier": 0.4474295257259411,
+        "coverage_at_5pct": 0.03,
+        "threshold_at_5pct": 0.9525616922787815,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.705
+          }
+        },
+        "ms_per_example": 261.2434162499994,
+        "temperatures": {
+          "choice": 1.4446931497138213
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 156.0,
+      "peak_memory_gb": 3.24
+    },
+    "boolq": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.885,
+        "ece": 0.07924896672779916,
+        "brier": 0.20125573405416275,
+        "coverage_at_5pct": 0.63,
+        "threshold_at_5pct": 0.9834046964998183,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.885
+          }
+        },
+        "ms_per_example": 113.66229792000013,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.89,
+        "ece": 0.05527018376633866,
+        "brier": 0.17643949384836957,
+        "coverage_at_5pct": 0.735,
+        "threshold_at_5pct": 0.7697453257943414,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.89
+          }
+        },
+        "ms_per_example": 113.90508854499785,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.43745846384414794,
+            0.6183325822510836
+          ]
+        }
+      },
+      "elapsed_s": 67.8,
+      "peak_memory_gb": 3.31
+    },
+    "sst5": {
+      "k": 5,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.47,
+        "ece": 0.2268412801456968,
+        "brier": 0.7075694559296904,
+        "coverage_at_5pct": 0.01,
+        "threshold_at_5pct": 0.9880120237824133,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.47
+          }
+        },
+        "ms_per_example": 89.67226624999967,
+        "temperatures": {
+          "score": 1.0
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.47,
+        "ece": 0.048537849582141905,
+        "brier": 0.6445206878993482,
+        "coverage_at_5pct": 0.01,
+        "threshold_at_5pct": 0.8297831176878901,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.47
+          }
+        },
+        "ms_per_example": 89.44030479499816,
+        "temperatures": {
+          "score": 2.07152653251895
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "elapsed_s": 54.0,
+      "peak_memory_gb": 3.31
+    },
+    "clinc150": {
+      "k": 151,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.765,
+        "ece": 0.11566936086261008,
+        "brier": 0.3694661487168409,
+        "coverage_at_5pct": 0.18,
+        "threshold_at_5pct": 0.9919497254985326,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.765
+          }
+        },
+        "ms_per_example": 357.7223781249995,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.765,
+        "ece": 0.07162295550512686,
+        "brier": 0.3610953632521905,
+        "coverage_at_5pct": 0.21,
+        "threshold_at_5pct": 0.9617912759784168,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.765
+          }
+        },
+        "ms_per_example": 364.09729458500806,
+        "temperatures": {
+          "choice": 1.2064745640179546
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 217.2,
+      "peak_memory_gb": 3.31
+    },
+    "massive": {
+      "k": 60,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.72,
+        "ece": 0.0808064885247823,
+        "brier": 0.3536837123659958,
+        "coverage_at_5pct": 0.535,
+        "threshold_at_5pct": 0.9226372468767728,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.72
+          }
+        },
+        "ms_per_example": 201.6679781249968,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.72,
+        "ece": 0.05204029040133792,
+        "brier": 0.34988553065184136,
+        "coverage_at_5pct": 0.535,
+        "threshold_at_5pct": 0.884709252109117,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.72
+          }
+        },
+        "ms_per_example": 202.022445624998,
+        "temperatures": {
+          "choice": 1.0860954514168897
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 121.2,
+      "peak_memory_gb": 3.31
+    },
+    "ledgar": {
+      "k": 100,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.7,
+        "ece": 0.12218391483623164,
+        "brier": 0.43632907912075736,
+        "coverage_at_5pct": 0.415,
+        "threshold_at_5pct": 0.9534202177851794,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.7
+          }
+        },
+        "ms_per_example": 213.88467624999976,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.7,
+        "ece": 0.12110406333495706,
+        "brier": 0.4198763909285248,
+        "coverage_at_5pct": 0.435,
+        "threshold_at_5pct": 0.8843232531340165,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.7
+          }
+        },
+        "ms_per_example": 213.2615710400023,
+        "temperatures": {
+          "choice": 1.188493241869582
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 127.7,
+      "peak_memory_gb": 3.4
+    },
+    "go_emotions": {
+      "k": 28,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.43,
+        "ece": 0.1267761117984222,
+        "brier": 0.40488435766212477,
+        "coverage_at_5pct": 0.015,
+        "threshold_at_5pct": 0.9719462133929746,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.43
+          }
+        },
+        "ms_per_example": 103.95603271000255,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.43,
+        "ece": 0.12193437957764305,
+        "brier": 0.352983611696083,
+        "coverage_at_5pct": 0.015,
+        "threshold_at_5pct": 0.7934650553195158,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.43
+          }
+        },
+        "ms_per_example": 103.3165454149912,
+        "temperatures": {
+          "choice": 1.511262737693126
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 62.4,
+      "peak_memory_gb": 3.4
+    },
+    "mmlu": {
+      "k": 4,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.64,
+        "ece": 0.14371774563275952,
+        "brier": 0.50911563928769,
+        "coverage_at_5pct": 0.13,
+        "threshold_at_5pct": 0.9774081403942189,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.64
+          }
+        },
+        "ms_per_example": 102.73351291500148,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.64,
+        "ece": 0.07457788046016113,
+        "brier": 0.48127983185712103,
+        "coverage_at_5pct": 0.135,
+        "threshold_at_5pct": 0.8435710564326119,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.64
+          }
+        },
+        "ms_per_example": 101.87421291499959,
+        "temperatures": {
+          "choice": 1.7299480312947422
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 61.4,
+      "peak_memory_gb": 3.4
+    },
+    "arc_challenge": {
+      "k": 4,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.9,
+        "ece": 0.04690564525550117,
+        "brier": 0.16846517743041264,
+        "coverage_at_5pct": 0.81,
+        "threshold_at_5pct": 0.7311381196288943,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.9
+          }
+        },
+        "ms_per_example": 94.5119416649959,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.9,
+        "ece": 0.03634404270184997,
+        "brier": 0.16703387138221465,
+        "coverage_at_5pct": 0.805,
+        "threshold_at_5pct": 0.7627524681271771,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.9
+          }
+        },
+        "ms_per_example": 94.09775125000124,
+        "temperatures": {
+          "choice": 0.9346595735734277
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 56.8,
+      "peak_memory_gb": 3.4
+    },
+    "mnli": {
+      "k": 3,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.765,
+        "ece": 0.09234367596935777,
+        "brier": 0.3330580712070638,
+        "coverage_at_5pct": 0.215,
+        "threshold_at_5pct": 0.9623709289933504,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.765
+          }
+        },
+        "ms_per_example": 105.432746460001,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.765,
+        "ece": 0.05564426359836243,
+        "brier": 0.3270796924601134,
+        "coverage_at_5pct": 0.12,
+        "threshold_at_5pct": 0.941253154344439,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.765
+          }
+        },
+        "ms_per_example": 105.17529416999423,
+        "temperatures": {
+          "choice": 1.3401960865625606
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 63.7,
+      "peak_memory_gb": 3.4
+    },
+    "chaosnli": {
+      "k": 3,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.685,
+        "ece": 0.11124917051167099,
+        "brier": 0.1756227378355949,
+        "coverage_at_5pct": 0.115,
+        "threshold_at_5pct": 0.9591042606353132,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.685
+          }
+        },
+        "ms_per_example": 105.54616270499537,
+        "temperatures": {
+          "choice": 1.0
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.685,
+        "ece": 0.07962130076901364,
+        "brier": 0.1375573279887548,
+        "coverage_at_5pct": 0.11,
+        "threshold_at_5pct": 0.9099576306055189,
+        "per_kind": {
+          "choice": {
+            "count": 200,
+            "accuracy": 0.685
+          }
+        },
+        "ms_per_example": 105.66760145499757,
+        "temperatures": {
+          "choice": 1.3401960865625606
+        },
+        "platt": {
+          "choice": null
+        }
+      },
+      "elapsed_s": 42.2,
+      "peak_memory_gb": 3.4
+    },
+    "yelp5": {
+      "k": 5,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.6,
+        "ece": 0.27305031560068876,
+        "brier": 0.6365888109575125,
+        "coverage_at_5pct": 0.02,
+        "threshold_at_5pct": 0.9992660875526601,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.6
+          }
+        },
+        "ms_per_example": 125.07319979000386,
+        "temperatures": {
+          "score": 1.0
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.6,
+        "ece": 0.09133906862937113,
+        "brier": 0.5207154899477748,
+        "coverage_at_5pct": 0.02,
+        "threshold_at_5pct": 0.9145694426853191,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.6
+          }
+        },
+        "ms_per_example": 125.6882814599976,
+        "temperatures": {
+          "score": 2.335942396883278
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "elapsed_s": 75.1,
+      "peak_memory_gb": 3.4
+    },
+    "helpsteer2_helpfulness": {
+      "k": 5,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.295,
+        "ece": 0.3296112861470748,
+        "brier": 0.8750721691349055,
+        "coverage_at_5pct": 0.005,
+        "threshold_at_5pct": 0.9187098228040307,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.295
+          }
+        },
+        "ms_per_example": 219.6801864600002,
+        "temperatures": {
+          "score": 1.0
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.295,
+        "ece": 0.1039847265428831,
+        "brier": 0.7246588417131977,
+        "coverage_at_5pct": 0.015,
+        "threshold_at_5pct": 0.5261204752650371,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.295
+          }
+        },
+        "ms_per_example": 223.32129354000244,
+        "temperatures": {
+          "score": 3.2019360584289167
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "elapsed_s": 134.2,
+      "peak_memory_gb": 3.76
+    },
+    "helpsteer2_verbosity": {
+      "k": 5,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.6,
+        "ece": 0.06906356778302059,
+        "brier": 0.549988963782579,
+        "coverage_at_5pct": 0.01,
+        "threshold_at_5pct": 0.9217335473201224,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.6
+          }
+        },
+        "ms_per_example": 235.61814000000595,
+        "temperatures": {
+          "score": 1.0
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.6,
+        "ece": 0.062155043889237385,
+        "brier": 0.5477857245629374,
+        "coverage_at_5pct": 0.01,
+        "threshold_at_5pct": 0.8840604792787297,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.6
+          }
+        },
+        "ms_per_example": 231.41300708000017,
+        "temperatures": {
+          "score": 1.136141322210519
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "elapsed_s": 141.5,
+      "peak_memory_gb": 3.76
+    },
+    "stsb": {
+      "k": 6,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.38,
+        "ece": 0.32410789793650685,
+        "brier": 0.8296498993259414,
+        "coverage_at_5pct": 0.005,
+        "threshold_at_5pct": 0.994313288192157,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.38
+          }
+        },
+        "ms_per_example": 104.85481541999434,
+        "temperatures": {
+          "score": 1.0
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.38,
+        "ece": 0.08236252603331955,
+        "brier": 0.6967911971134707,
+        "coverage_at_5pct": 0.005,
+        "threshold_at_5pct": 0.7546496371922065,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.38
+          }
+        },
+        "ms_per_example": 107.0231922899984,
+        "temperatures": {
+          "score": 2.6341090958278026
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "elapsed_s": 63.9,
+      "peak_memory_gb": 3.76
+    },
+    "measuring_hate_speech": {
+      "k": 3,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.56,
+        "ece": 0.1878007002081067,
+        "brier": 0.5623702072431801,
+        "coverage_at_5pct": 0.205,
+        "threshold_at_5pct": 0.9756837760464377,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.56
+          }
+        },
+        "ms_per_example": 104.42592541499835,
+        "temperatures": {
+          "score": 1.0
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.56,
+        "ece": 0.10474173087273451,
+        "brier": 0.5113514908549279,
+        "coverage_at_5pct": 0.07,
+        "threshold_at_5pct": 0.9580551148563751,
+        "per_kind": {
+          "score": {
+            "count": 200,
+            "accuracy": 0.56
+          }
+        },
+        "ms_per_example": 104.44427208499292,
+        "temperatures": {
+          "score": 1.950763790503938
+        },
+        "platt": {
+          "score": null
+        }
+      },
+      "elapsed_s": 63.0,
+      "peak_memory_gb": 3.76
+    },
+    "fever_evidence": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.92,
+        "ece": 0.07400108224532365,
+        "brier": 0.14077759778231055,
+        "coverage_at_5pct": 0.94,
+        "threshold_at_5pct": 0.9740080670668083,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.92
+          }
+        },
+        "ms_per_example": 98.89660354499938,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.935,
+        "ece": 0.039510923278433724,
+        "brier": 0.10459609117404824,
+        "coverage_at_5pct": 0.96,
+        "threshold_at_5pct": 0.6294596241617236,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.935
+          }
+        },
+        "ms_per_example": 98.29410833499423,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.29848391621353126,
+            -0.5910202951529167
+          ]
+        }
+      },
+      "elapsed_s": 59.1,
+      "peak_memory_gb": 3.76
+    },
+    "paws": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.815,
+        "ece": 0.08846036374656366,
+        "brier": 0.2590693528013622,
+        "coverage_at_5pct": 0.645,
+        "threshold_at_5pct": 0.9059059024416923,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.815
+          }
+        },
+        "ms_per_example": 140.43590917000074,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.82,
+        "ece": 0.06185016602762946,
+        "brier": 0.24743913272096096,
+        "coverage_at_5pct": 0.58,
+        "threshold_at_5pct": 0.804957621525939,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.82
+          }
+        },
+        "ms_per_example": 459.57291333500507,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.6099721852341443,
+            -0.36460338506542994
+          ]
+        }
+      },
+      "elapsed_s": 152.1,
+      "peak_memory_gb": 3.76
+    },
+    "civil_comments": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.54,
+        "ece": 0.4098241219359682,
+        "brier": 0.8451602352536218,
+        "coverage_at_5pct": 0.095,
+        "threshold_at_5pct": 0.9999679159046132,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.54
+          }
+        },
+        "ms_per_example": 733.5000762500022,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.93,
+        "ece": 0.04211242201808513,
+        "brier": 0.11160255174699862,
+        "coverage_at_5pct": 0.965,
+        "threshold_at_5pct": 0.6904617781276594,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.93
+          }
+        },
+        "ms_per_example": 276.67784457999915,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.29399889826752856,
+            -3.5770511904194646
+          ]
+        }
+      },
+      "elapsed_s": 309.7,
+      "peak_memory_gb": 3.76
+    },
+    "sms_spam": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.915,
+        "ece": 0.059394682792654085,
+        "brier": 0.14036494946509967,
+        "coverage_at_5pct": 0.825,
+        "threshold_at_5pct": 0.9492034811965433,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.915
+          }
+        },
+        "ms_per_example": 83.67516374999468,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.92,
+        "ece": 0.04752866406465496,
+        "brier": 0.13447768794416567,
+        "coverage_at_5pct": 0.865,
+        "threshold_at_5pct": 0.907748359965124,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.92
+          }
+        },
+        "ms_per_example": 82.68345187500017,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.951408226328732,
+            0.40170377386701855
+          ]
+        }
+      },
+      "elapsed_s": 50.9,
+      "peak_memory_gb": 3.76
+    },
+    "strategyqa_closed": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.56,
+        "ece": 0.25074826783128984,
+        "brier": 0.593545863469151,
+        "coverage_at_5pct": 0.02,
+        "threshold_at_5pct": 0.9857186578726399,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.56
+          }
+        },
+        "ms_per_example": 87.30158874999688,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.59,
+        "ece": 0.14280714824933458,
+        "brier": 0.4942134539720916,
+        "coverage_at_5pct": 0.02,
+        "threshold_at_5pct": 0.9009018565851821,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.59
+          }
+        },
+        "ms_per_example": 89.01535791499555,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.5573156185499476,
+            0.1526211329843813
+          ]
+        }
+      },
+      "elapsed_s": 49.1,
+      "peak_memory_gb": 3.76
+    },
+    "strategyqa_grounded": {
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.855,
+        "ece": 0.07615124779382176,
+        "brier": 0.24389813232729593,
+        "coverage_at_5pct": 0.57,
+        "threshold_at_5pct": 0.9525772360815109,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.855
+          }
+        },
+        "ms_per_example": 313.78364354500263,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.855,
+        "ece": 0.03586002640553978,
+        "brier": 0.2197308958205604,
+        "coverage_at_5pct": 0.64,
+        "threshold_at_5pct": 0.8786167769160574,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.855
+          }
+        },
+        "ms_per_example": 144.28687812499447,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.8178695293568135,
+            0.4691553701722956
+          ]
+        }
+      },
+      "elapsed_s": 115.1,
+      "peak_memory_gb": 3.76
+    }
+  },
+  "load_s": 1.3
+}

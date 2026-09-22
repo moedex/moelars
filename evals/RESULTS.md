@@ -199,7 +199,109 @@ Largest moves, calibrated accuracy:
 
 ### Not done in this batch
 
-A second head trained on the full corpus (about 14,000 records against 2,651), the
-Qwen3.5-9B backbone, and the Molar Triage example numbers were queued and cancelled
-before they started so the machine could be rebooted. `HANDOFF.md` has the exact
-commands.
+A second head trained on the full corpus, the Qwen3.5-9B backbone, and the Molar Triage
+example numbers were queued and cancelled for a reboot. The head and a partial 9B run
+are in the next two sections.
+
+## 2026-09-22: Tier B head v2, full corpus, fair comparison
+
+Same recipe as the first head, trained on the full clean corpus: 14,285 records
+(`--limit 20000`, at most 160 options), the same five jev-bench sources plus one
+tasksource task held out, giving 12,685 training records (19,637 presentations with
+shuffled twins) and 1,600 held-out records. Feature extraction took 33 minutes on the
+4B; training takes under a second per epoch. The checkpoint was selected at epoch 4
+on held-out Brier; later epochs kept improving training accuracy (0.83 by epoch 10)
+while held-out accuracy fell, so more epochs would not help. Artifacts:
+`evals/results/tier-b-qwen3-4b-v2.head.npz`, `tier-b-qwen3-4b-v2.history.json`, and the
+raw per-source test-shard report `tier-b-qwen3-4b-v2-test.json`; the projection is the
+same seeded `projection(2560, 512, seed=0)` as the first head. Full tables for Tier A,
+head v1, and head v2, all with per-config calibration: `evals/results/compare-qwen3-4b-head-v2.md`.
+
+| scope | n | Tier A | head v1 | head v2 | Jev |
+|---|---|---|---|---|---|
+| accuracy, all | 22 | 0.662 | 0.680 | **0.689** | 0.733 |
+| accuracy, choice | 9 | 0.657 | 0.676 | **0.701** | 0.770 |
+| accuracy, score | 6 | 0.466 | **0.492** | 0.484 | 0.503 |
+| accuracy, noul | 7 | 0.837 | 0.847 | **0.849** | 0.881 |
+| accuracy, sources the head trained on | 16 | 0.668 | 0.699 | **0.708** | |
+| accuracy, sources held out of training | 5 | **0.639** | 0.632 | 0.628 | |
+| ECE, all | 22 | 0.088 | 0.082 | **0.073** | 0.113 |
+| Brier, all | 22 | 0.404 | 0.390 | **0.372** | 0.349 |
+
+### Reading
+
+- **+2.7 macro accuracy over Tier A with calibration on both sides**, up from +1.8 for
+  the first head. The gap to Jev is 4.4 points, down from 7.1.
+- **The new gain is on high-K routing**: banking77 +4.0, clinc150 +4.0, massive +4.5
+  over Tier A, with ECE on clinc150 halved (0.147 to 0.072). These were the largest
+  non-knowledge gaps.
+- **Still no gain on held-out sources.** The raw per-source report on the test shard
+  showed civil_comments, a held-out source, up 18 points, but per-config calibration
+  gives Tier A the same answer, so after calibration held-out sources are flat to
+  slightly down (0.628 against 0.639, within one standard error). Everything this head
+  buys is on question forms that the training corpus covers.
+- **chaosnli recovered** to Tier A's 0.685 (head v1: 0.620). It is not the borrowed
+  calibrator: mnli's fitted choice temperature is about the same under both heads (1.44
+  and 1.34), so the difference is in the heads' chaosnli outputs. Not investigated
+  further; on 200 rows 6.5 points is about two standard errors.
+- **Score tasks are flat.** The ordinal configs are where the head does least; sst5,
+  yelp5, and stsb move within noise.
+- **Where the remaining 4.4 points are**, in macro points: closed-book knowledge (mmlu,
+  strategyqa_closed, arc_challenge) 2.5; reading and NLI (mnli, stsb,
+  strategyqa_grounded, paws, boolq, fever) 2.1; high-K routing (banking77, clinc150,
+  massive, ledgar) 1.6; ordinal scores (sst5, yelp5, helpsteer2_helpfulness) 1.1;
+  sms_spam 0.2; offset by 3.2 points of configs where MoeLAR is ahead. civil_comments
+  is 1.8 of those 3.2 and is the majority baseline (see the Tier A caveats), so the
+  headline flatters MoeLAR by about that much.
+- **Latency is not reported for this run.** Another job shared the GPU while it ran;
+  three configs came out five to eight times slower than head v1 on identical compute.
+  Load time, peak memory, and warm latency are measured separately by
+  `scripts/load_cost.py`.
+
+## 2026-09-22: Qwen3.5-9B Tier A, partial (11 of 22 configs)
+
+`mlx-community/Qwen3.5-9B-MLX-4bit`, same suite and calibration procedure. Stopped by
+hand after 11 configs: it was not beating 4B plus head v2, at two to three times the
+cost per row, and the GPU was needed. The suite writes after every config, so
+`evals/results/qwen3-5-9b-mlx-4bit.{json,md}` hold the 11 finished configs; their macro
+rows cover those 11 only. Latency was measured with another job on the GPU and is only a
+rough ratio.
+
+| config | 4B | 4B + head v2 | 9B | Jev | 9B ms/row | 4B ms/row |
+|---|---|---|---|---|---|---|
+| banking77 | 0.665 | **0.705** | 0.695 | 0.796 | 743 | 217 |
+| boolq | **0.890** | **0.890** | 0.870 | 0.917 | 1052 | 107 |
+| sst5 | **0.475** | 0.470 | **0.475** | 0.565 | 186 | 89 |
+| clinc150 | 0.725 | 0.765 | **0.780** | 0.893 | 716 | 369 |
+| massive | 0.675 | **0.720** | 0.705 | 0.808 | 392 | 216 |
+| ledgar | 0.635 | **0.700** | 0.665 | 0.751 | 420 | 226 |
+| go_emotions | 0.245 | **0.430** | 0.230 | 0.282 | 362 | 107 |
+| mmlu | 0.670 | 0.640 | **0.710** | 0.923 | 184 | 105 |
+| arc_challenge | 0.890 | 0.900 | **0.910** | 0.979 | 157 | 96 |
+| mnli | 0.725 | 0.765 | **0.805** | 0.883 | 172 | 107 |
+| chaosnli | **0.685** | **0.685** | 0.670 | 0.615 | 169 | 106 |
+| mean of these 11 | 0.662 | **0.697** | 0.683 | 0.765 | | |
+
+### Reading
+
+- **Dense scale is the expensive lever.** On these 11 configs the 9B adds 2.1 points
+  over the 4B and 4B plus head v2 adds 3.5. The jev-bench maintainers' zero-shot
+  Qwen3.5-9B lands at 0.689 macro, which is where our 4B plus head already is.
+- **The 9B helps where knowledge and reading matter** (mmlu +4, mnli +8, clinc150 +5.5)
+  and not on label-prior tasks (go_emotions, chaosnli), which is the opposite profile
+  to the head. The two levers are complementary.
+- **The 9B's raw logits are already close to calibrated**: fitted choice temperatures
+  of 1.1 to 1.3 against 4 to 5 for the 4B. On 200 validation rows the fit sometimes
+  makes test ECE slightly worse (clinc150 0.062 raw to 0.122).
+- **Next levers**, in order: LoRA on the 4B plus a head (the jev-bench maintainers'
+  LoRA plus residual head on the same 4B reaches 0.747, above Jev), a confidence
+  cascade to a larger model for knowledge questions, and a mixture-of-experts backbone
+  (Qwen3-30B-A3B, about 3B active parameters) as the cascade target or default.
+
+### Bug found on the way, now tested
+
+Qwen3.5's Gated DeltaNet layers keep their state in an `ArraysCache`, whose `.state`
+hands out the internal list and whose setter adopts the list it is given; the layers
+then write through `cache[i] = ...`. Restoring a prefix snapshot for one row therefore
+changed the snapshot for the next. Snapshots and restores now copy the list, and a unit
+test with the real mlx-lm cache classes pins it.

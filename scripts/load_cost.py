@@ -3,6 +3,7 @@
     uv run python scripts/load_cost.py mlx-community/Qwen3-4B-Instruct-2507-4bit mlx-community/Qwen3.5-9B-MLX-4bit
 """
 
+import gc
 import json
 import sys
 import time
@@ -45,6 +46,8 @@ def main() -> int:
         }
         print(json.dumps({model: out[model]}), flush=True)
         del engine
+        gc.collect()
+        mx.clear_cache()  # so the next model's peak starts from an empty pool
     Path("logs").mkdir(exist_ok=True)
     Path("logs/load-cost.json").write_text(json.dumps(out, indent=2))
     return 0

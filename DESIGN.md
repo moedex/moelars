@@ -224,7 +224,12 @@ opt-in for fixed schemas with a calibration set.
 4. **Tier B** (first head done and fairly compared 2026-09-22): pointer residual head
    on cached features. With per-config calibration on both sides it adds 1.8 macro
    accuracy on jev-bench, all of it on question forms in its training corpus, and is
-   neutral on held-out forms. Next: train on the full corpus and on a 9B backbone.
+   neutral on held-out forms. Head v2 on the full clean corpus (about 14,000 records)
+   adds 2.7, mostly on high-K routing, still neutral on held-out forms. A partial
+   Qwen3.5-9B Tier A run added about 2 points over the 4B at two to three times the
+   cost, so dense scale is not the default path. Next: LoRA plus head on the 4B, the
+   half of this tier that was specified above but not yet built; then the cascade
+   (round two) with a mixture-of-experts model (Qwen3-30B-A3B) as the escalation target.
 5. **Extensions round two**: batched states, `not_stated`, cascade, replay cache.
 6. **Tier C** and the probe and red-team suites in CI.
 
