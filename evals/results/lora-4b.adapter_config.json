@@ -1,0 +1,33 @@
+{
+  "fine_tune_type": "lora",
+  "num_layers": 36,
+  "lora_parameters": {
+    "rank": 8,
+    "scale": 20.0,
+    "dropout": 0.0
+  },
+  "moelar": {
+    "model": "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+    "records": [
+      "data/train/open-jev.train.jsonl",
+      "data/train/jev-bench.train.jsonl",
+      "data/train/tasksource-jev.train.jsonl"
+    ],
+    "limit": 20000,
+    "holdout_fraction": 0.2,
+    "heldout_sources": [
+      "jev-bench/civil_comments",
+      "jev-bench/fever_evidence",
+      "jev-bench/helpsteer2_helpfulness",
+      "jev-bench/stsb",
+      "jev-bench/yelp5",
+      "tasksource-jev/babi_nli/three-arg-relations"
+    ],
+    "lr": 2e-05,
+    "epochs": 1,
+    "brier_weight": 1.0,
+    "batch_tokens": 4096,
+    "max_tokens": 2048,
+    "seed": 0
+  }
+}

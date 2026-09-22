@@ -256,7 +256,8 @@ def train(
         nonlocal best
         entry: dict[str, Any] = {"step": step, "epoch": epoch, "loss": running / max(seen, 1),
                                  "minutes": round((time.perf_counter() - started) / 60, 1),
-                                 "lr": float(optimizer.learning_rate)}
+                                 "lr": float(optimizer.learning_rate),
+                                 "peak_memory_gb": round(mx.get_peak_memory() / 1e9, 2)}
         if heldout:
             entry["heldout"] = evaluate(mx, model, heldout, batch_tokens)
             improved = best is None or entry["heldout"]["brier"] < best
