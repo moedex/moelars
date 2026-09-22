@@ -9,6 +9,7 @@ fails on a given cache type, the backend falls back to a full prefill per row.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -21,7 +22,7 @@ from moelar.spans import char_offsets_to_token_indexes, option_end_char_offsets
 class MLXBackend(Backend):
     name = "mlx"
 
-    def __init__(self, model_path: str, template: str | None = None) -> None:
+    def __init__(self, model_path: str, template: str | None = None, adapter: str | None = None) -> None:
         try:
             import mlx.core as mx
             from mlx_lm import load
@@ -31,11 +32,12 @@ class MLXBackend(Backend):
 
         self._mx = mx
         self._make_cache = make_prompt_cache
-        self.model, self.tokenizer = load(model_path)
+        # A LoRA adapter from `moelar.train.lora` loads through mlx-lm's own adapter path.
+        self.model, self.tokenizer = load(model_path, adapter_path=adapter)
         # Vision-language checkpoints (Qwen3.5) wrap the text stack in `language_model`;
         # everything that touches the transformer body or the output projection goes there.
         self._text = getattr(self.model, "language_model", self.model)
-        self.model_name = model_path
+        self.model_name = model_path if adapter is None else f"{model_path}+{Path(adapter).name}"
         self._template: TemplateFn
         if template and template in TEMPLATES:
             self._template = TEMPLATES[template]

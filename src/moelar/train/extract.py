@@ -42,6 +42,7 @@ def _records_from_eval_jsonl(paths: list[str]) -> list[Record]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
+    parser.add_argument("--adapter", default=None, help="LoRA adapter directory from moelar.train.lora")
     parser.add_argument("--records", nargs="+", required=True)
     parser.add_argument("--test-records", nargs="*", default=[])
     parser.add_argument("--limit", type=int, default=3000, help="records sampled across --records")
@@ -84,11 +85,12 @@ def main() -> int:
         print(f"wrote {out / 'sources.json'} with {len(sources) - 1} ids")
         return 0
 
-    backend = MLXBackend(args.model)
+    backend = MLXBackend(args.model, adapter=args.adapter)
     proj = projection(backend.hidden_size, args.proj_dim, seed=args.seed)
     np.save(out / "projection.npy", proj)
 
-    manifest = {"model": args.model, "proj_dim": args.proj_dim, "shuffles": args.shuffles, "seed": args.seed}
+    manifest = {"model": args.model, "adapter": args.adapter, "proj_dim": args.proj_dim, "shuffles": args.shuffles,
+                "seed": args.seed}
     for name, subset, shuffles in [("train", train, args.shuffles), ("heldout", heldout, 0)]:
         if not subset:
             continue

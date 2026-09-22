@@ -59,6 +59,36 @@ uv run moelar serve --backend mlx --model <model> --head checkpoints/pointer_hea
     --projection data/features/projection.npy
 ```
 
+### LoRA plus head
+
+The half of Tier B that `DESIGN.md` specifies beyond the frozen-feature head: adapt the
+backbone with LoRA through the same label readout, then train a head on the adapted
+model's features. `moelar.train.lora` uses the same sampling, `--limit`, and seed as
+`extract`, so both hold out the same sources.
+
+```bash
+# 1. LoRA through the label readout (GPU, the long step). Saves the best held-out checkpoint.
+uv run python -m moelar.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
+    --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl data/train/tasksource-jev.train.jsonl \
+    --limit 20000 --out checkpoints/lora-4b
+
+# 2. features from the adapted model, then a head on them, as above
+uv run python -m moelar.train.extract --model mlx-community/Qwen3-4B-Instruct-2507-4bit --adapter checkpoints/lora-4b \
+    --records ... --test-records evals/data/*.test.jsonl --test-limit 1100 --limit 20000 --max-options 160 \
+    --out data/features-lora
+uv run python -m moelar.train.residual --train data/features-lora/train.npz --heldout data/features-lora/heldout.npz \
+    --epochs 10 --out checkpoints/pointer_head_lora.npz
+
+# 3. fair suite; --adapter works on serve, eval, and calibrate too
+uv run python evals/run_suite.py --backend mlx --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
+    --adapter checkpoints/lora-4b --tag lora
+```
+
+Loss: cross-entropy plus Brier on the K label logits at the answer position, with a fresh
+option order for every choice record each epoch. Only the answer position is projected to
+the vocabulary. LoRA's `scale` multiplies every update, so keep the learning rate low
+(default 2e-5 at scale 20); on a toy model 1e-2 oscillated where 3e-3 converged.
+
 ## Status
 
 First real run done on Qwen3-4B features, see `evals/RESULTS.md`: +2.6 macro accuracy,

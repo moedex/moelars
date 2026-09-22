@@ -5,7 +5,10 @@ from __future__ import annotations
 from moelar.backends.base import Backend
 
 
-def load_backend(name: str, model: str | None = None, template: str | None = None) -> Backend:
+def load_backend(name: str, model: str | None = None, template: str | None = None,
+                 adapter: str | None = None) -> Backend:
+    if adapter and name != "mlx":
+        raise ValueError("LoRA adapters are only supported on the mlx backend")
     if name == "mock":
         from moelar.backends.mock import MockBackend
 
@@ -15,7 +18,7 @@ def load_backend(name: str, model: str | None = None, template: str | None = Non
 
         if not model:
             raise ValueError("--model is required for the mlx backend")
-        return MLXBackend(model, template=template)
+        return MLXBackend(model, template=template, adapter=adapter)
     if name == "llamacpp":
         from moelar.backends.llamacpp import LlamaCppBackend
 

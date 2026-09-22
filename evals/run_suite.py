@@ -114,6 +114,7 @@ def main() -> int:
     parser.add_argument("--data-dir", default=str(HERE / "data"))
     parser.add_argument("--out-dir", default=str(HERE / "results"))
     parser.add_argument("--calibration-dir", default=str(HERE.parent / "calibration"))
+    parser.add_argument("--adapter", default=None, help="LoRA adapter directory from moelar.train.lora")
     parser.add_argument("--head", default=None, help="Tier B pointer head npz; runs every pass through it")
     parser.add_argument("--projection", default=None, help="projection.npy that the head was trained with")
     parser.add_argument("--tag", default=None, help="suffix for the result and calibrator files, e.g. 'head'")
@@ -129,11 +130,11 @@ def main() -> int:
 
     results = json.loads(out_json.read_text()) if out_json.exists() and not args.force else {}
     results.update({"model": args.model, "backend": args.backend, "rows_per_split": args.rows, "version": __version__,
-                    "head": args.head})
+                    "adapter": args.adapter, "head": args.head})
     results.setdefault("configs", {})
 
     load_started = time.perf_counter()
-    backend = load_backend(args.backend, model=args.model, template=args.template)
+    backend = load_backend(args.backend, model=args.model, template=args.template, adapter=args.adapter)
     results["load_s"] = round(time.perf_counter() - load_started, 1)
     head = None
     if args.head:
