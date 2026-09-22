@@ -65,8 +65,10 @@ First real run done on Qwen3-4B features, see `evals/RESULTS.md`: +2.6 macro acc
 ECE down a third, Brier down a fifth on the jev-bench test shard with no per-config
 calibration; held-out sources neutral on accuracy and better on Brier. Checkpoint
 selection is by held-out Brier. `python -m moelar.train.report` gives the per-source
-table. Next: head plus per-config temperature against the Tier A table, more training
-records, and a 9B backbone.
+table. The fair comparison (head plus per-config calibration against Tier A plus the
+same) is +1.8 macro accuracy, all on sources the head trained on; held-out sources are
+neutral. `evals/run_suite.py --head ... --tag head` reproduces it. Next: train on the
+full corpus (`--limit 20000`) and on a 9B backbone; see `HANDOFF.md`.
 
 Known gaps: the head is per-letter-position-blind by design (it scores option text
 through the option-line hidden state, not the letter), so it cannot fix letter bias in

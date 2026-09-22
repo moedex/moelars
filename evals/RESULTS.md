@@ -128,8 +128,8 @@ Per source on the test shard, largest moves:
 - **Where it hurts**: sst5 and mmlu lose 5 to 7 points on about 50 rows each. sst5 is an
   ordinal task whose train rows the head did see, so this may be the score head
   over-weighting adjacent levels. mmlu is knowledge, which no head fixes.
-- **Not yet compared**: head plus per-config temperature against the Tier A table
-  above, which is the fair serving comparison. That run is next.
+- **Fair comparison**: see the next section, which runs the head through the same
+  per-config calibration as Tier A.
 
 ### Bugs found on the way, both now tested
 
@@ -142,3 +142,64 @@ Per source on the test shard, largest moves:
 ## 2026-09-22 (earlier): first three configs
 
 Superseded by the full table above; kept in git history.
+
+## 2026-09-22: Tier B fair comparison, head plus per-config calibration
+
+Same 22 configs, same 200 test rows, same calibration procedure on the same 200
+validation rows, with every pass routed through the first pointer head
+(`evals/results/tier-b-qwen3-4b.head.npz`). Full accuracy, ECE, Brier, and latency
+tables are in `evals/results/compare-qwen3-4b-head.md`; the run itself is
+`evals/results/qwen3-4b-instruct-2507-4bit-head.{json,md}`.
+
+| scope | n | acc 4B | acc 4B+head | ECE 4B | ECE 4B+head | Brier 4B | Brier 4B+head | Jev acc |
+|---|---|---|---|---|---|---|---|---|
+| all | 22 | 0.662 | **0.680** | 0.088 | **0.082** | 0.404 | **0.390** | 0.733 |
+| choice | 9 | 0.657 | **0.676** | **0.084** | 0.097 | 0.386 | **0.374** | 0.770 |
+| score | 6 | 0.466 | **0.492** | 0.116 | **0.090** | 0.645 | **0.613** | 0.503 |
+| noul | 7 | 0.837 | **0.847** | 0.069 | **0.056** | 0.222 | **0.219** | 0.881 |
+| sources the head trained on | 16 | 0.668 | **0.699** | | | 0.410 | **0.385** | |
+| sources held out of training | 5 | **0.639** | 0.632 | | | **0.434** | 0.444 | |
+
+Latency is unchanged: 138 ms per row without the head, 135 with it, because the hidden
+states come out of the same forward pass and the head is a few matrix products in numpy.
+
+Largest moves, calibrated accuracy:
+
+| config | 4B | 4B+head | seen in training | note |
+|---|---|---|---|---|
+| measuring_hate_speech | 0.405 | 0.615 | yes | ahead of Jev's 0.527 |
+| go_emotions | 0.245 | 0.395 | yes | ahead of Jev's 0.282, but ECE 0.05 to 0.16 |
+| ledgar | 0.635 | 0.700 | yes | |
+| mnli | 0.725 | 0.770 | yes | |
+| strategyqa_closed | 0.570 | 0.605 | yes | |
+| helpsteer2_helpfulness | 0.325 | 0.280 | held out | Brier worse too |
+| chaosnli | 0.685 | 0.620 | borrows mnli calibrator | sharper mnli answers hurt the vote-distribution target |
+| clinc150 | 0.725 | 0.700 | yes | 151-way; head was trained on 300 rows of it |
+| sst5 | 0.475 | 0.450 | yes | |
+
+### Reading
+
+- **The honest gain is +1.8 macro accuracy**, not the +2.6 of the raw-versus-raw
+  comparison, and most of the earlier calibration gain disappears once Tier A gets its
+  own per-config fit. Brier still improves on 14 of 22 configs.
+- **All of the gain is in-distribution.** On the 16 sources the head trained on it is
+  +3.1 accuracy and Brier down 0.025; on the 5 held-out sources it is 0.7 down on
+  accuracy and 0.01 worse on Brier, within noise for 200-row splits (one standard error
+  is about 3.4 points at these accuracies) but not a gain. This is the residual-head
+  promise kept at the minimum: no regression on new forms, and no free lunch either.
+- **The head sharpens.** ECE gets worse on go_emotions, ledgar, mmlu, and the score
+  tasks it did not see. The learned per-kind scale is fitted to the training mix; where
+  a config's temperature disagrees with it, the per-config temperature has to undo it.
+- **chaosnli is a trap.** It has no validation split, so it borrows mnli's calibrator;
+  the head's sharper mnli makes chaosnli's soft targets look worse. A config that scores
+  against vote distributions should get its own temperature or a flatter one.
+- **Recommendation for serving**: the head is worth switching on for a deployment
+  whose question forms resemble the training corpus (intent routing, sentiment,
+  toxicity, NLI). For unknown forms, Tier A plus a per-config fit is as good and simpler.
+
+### Not done in this batch
+
+A second head trained on the full corpus (about 14,000 records against 2,651), the
+Qwen3.5-9B backbone, and the Molar Triage example numbers were queued and cancelled
+before they started so the machine could be rebooted. `HANDOFF.md` has the exact
+commands.

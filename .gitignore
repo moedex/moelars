@@ -13,3 +13,5 @@ models/
 data/
 checkpoints/
 .env
+!examples/molar_triage/*.jsonl
+logs/

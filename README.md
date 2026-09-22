@@ -86,7 +86,8 @@ uv run moelar eval      --backend mlx --model <model> --calibration calibration/
 `eval` reports accuracy, expected calibration error, Brier score, and the coverage you
 can automate at a 5% error budget. The JSONL format is in `evals/README.md`. Nouls get
 a Platt fit on the raw yes-minus-no logit, which can move a biased model's decision
-boundary; choice and score get a temperature.
+boundary; choice and score get a temperature. `examples/molar_triage/` walks through
+this end to end on a small hand-labeled dental inbox.
 
 ## Train a decision head (Tier B)
 
@@ -124,10 +125,10 @@ evals/             benchmark data conventions and a jev-bench fetcher
 ## Status
 
 Pre-alpha. The mock backend and the HTTP contract are tested. The MLX backend has been
-run on Apple Silicon with Qwen3-4B-Instruct and benchmarked on three jev-bench configs;
-see `evals/RESULTS.md`. The llama.cpp backend is written against its library's documented
-API and still needs a hardware pass. See `DESIGN.md` for the architecture, the reasoning,
-and the roadmap.
+run on Apple Silicon with Qwen3-4B-Instruct and Qwen3.5-9B and benchmarked on all 22
+jev-bench configs, with and without a Tier B head; see `evals/RESULTS.md`. The llama.cpp
+backend is written against its library's documented API and still needs a hardware pass.
+See `DESIGN.md` for the architecture, the reasoning, and the roadmap.
 
 ## License
 

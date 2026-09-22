@@ -32,6 +32,9 @@ class MLXBackend(Backend):
         self._mx = mx
         self._make_cache = make_prompt_cache
         self.model, self.tokenizer = load(model_path)
+        # Vision-language checkpoints (Qwen3.5) wrap the text stack in `language_model`;
+        # everything that touches the transformer body or the output projection goes there.
+        self._text = getattr(self.model, "language_model", self.model)
         self.model_name = model_path
         self._template: TemplateFn
         if template and template in TEMPLATES:
@@ -46,7 +49,12 @@ class MLXBackend(Backend):
 
     def _hf_template(self, system: str, user: str) -> str:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        # Hybrid-thinking templates (Qwen3, Qwen3.5) open a <think> block by default; the
+        # label readout needs the plain answer position, so thinking is switched off. Templates
+        # without the switch ignore the keyword.
+        return self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        )
 
     def template(self) -> TemplateFn:
         return self._template
@@ -70,13 +78,13 @@ class MLXBackend(Backend):
 
     @property
     def hidden_size(self) -> int:
-        return int(self.model.args.hidden_size)
+        return int(self._text.args.hidden_size)
 
     def hidden_states(self, text: str) -> np.ndarray:
         """Final-layer hidden states for every token of `text`, shape (T, hidden_size), float32."""
         mx = self._mx
         ids = self._encode(text)
-        hidden = self.model.model(mx.array(ids)[None])[0]
+        hidden = self._text.model(mx.array(ids)[None])[0]
         mx.eval(hidden)
         return np.asarray(hidden.astype(mx.float32))
 
@@ -90,7 +98,7 @@ class MLXBackend(Backend):
         ids = [self._label_id(label) for label in labels]
         if any(i is None for i in ids):
             raise ValueError(f"labels not single-token for this tokenizer: {labels}")
-        layer = self.model.model.embed_tokens if self.model.args.tie_word_embeddings else self.model.lm_head
+        layer = self._text.model.embed_tokens if self._text.args.tie_word_embeddings else self._text.lm_head
         index = mx.array(ids)
         if hasattr(layer, "scales"):
             rows = mx.dequantize(
@@ -155,7 +163,7 @@ class MLXBackend(Backend):
     def _hidden_forward(self, ids: list[int], cache: Any):
         """Run the transformer body only; returns (T, hidden) for these positions."""
         mx = self._mx
-        hidden = self.model.model(mx.array(ids)[None], cache=cache)[0]
+        hidden = self._text.model(mx.array(ids)[None], cache=cache)[0]
         mx.eval(hidden)
         return hidden
 

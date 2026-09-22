@@ -1,0 +1,10 @@
+{
+  "temperatures": {
+    "noul": 1.0,
+    "choice": 2.407160433671502,
+    "score": 1.0,
+    "multi": 1.0
+  },
+  "platt": {},
+  "fitted_on": "jev-bench/banking77/validation[:200]"
+}

@@ -4,6 +4,12 @@ Writes results incrementally so a crash keeps what finished, skips configs alrea
 the output unless --force, and renders a markdown table with the published Jev column.
 
     uv run python evals/run_suite.py --backend mlx --model mlx-community/Qwen3-4B-Instruct-2507-4bit
+
+With a Tier B head, results and calibrators are written under a separate tag so the
+head-plus-per-config-calibration run sits next to the Tier A run for the same model:
+
+    uv run python evals/run_suite.py --backend mlx --model <model> --head checkpoints/pointer_head.npz \
+        --projection data/features/projection.npy --tag head
 """
 
 from __future__ import annotations
@@ -34,6 +40,14 @@ ALL_CONFIGS = [
 CALIBRATION_FALLBACK = {"chaosnli": "mnli"}
 
 
+def peak_memory_gb(backend) -> float | None:
+    """Peak device memory so far for MLX backends; None elsewhere."""
+    mx = getattr(backend, "_mx", None)
+    if mx is None or not hasattr(mx, "get_peak_memory"):
+        return None
+    return round(mx.get_peak_memory() / 1e9, 2)
+
+
 def slugify(model: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", model.lower().split("/")[-1]).strip("-")
 
@@ -44,12 +58,16 @@ def macro(rows: list[dict], key: str) -> float | None:
 
 
 def render_table(results: dict, jev: dict, path: Path) -> None:
+    peak = max((e.get("peak_memory_gb") or 0.0 for e in results["configs"].values()), default=0.0)
     lines = [
         f"# {results['model']}",
         "",
         f"Backend `{results['backend']}`, {results['rows_per_split']} test rows per config, calibration fitted on "
-        f"{results['rows_per_split']} validation rows. MoeLAR {results['version']}. Jev column quoted from "
-        "jev-bench's published jev-1.13.0 run on full splits.",
+        f"{results['rows_per_split']} validation rows. MoeLAR {results['version']}"
+        + (f", pointer head `{results['head']}`" if results.get("head") else "")
+        + ". Jev column quoted from jev-bench's published jev-1.13.0 run on full splits."
+        + (f" Model load {results['load_s']}s." if results.get("load_s") is not None else "")
+        + (f" Peak memory {peak:.1f} GB." if peak else ""),
         "",
         "| config | prim | K | acc raw | acc cal | ECE raw | ECE cal | Brier raw | Brier cal | cov@5% | ms/row "
         "| Jev acc | Jev ECE | Jev Brier |",
@@ -96,10 +114,13 @@ def main() -> int:
     parser.add_argument("--data-dir", default=str(HERE / "data"))
     parser.add_argument("--out-dir", default=str(HERE / "results"))
     parser.add_argument("--calibration-dir", default=str(HERE.parent / "calibration"))
+    parser.add_argument("--head", default=None, help="Tier B pointer head npz; runs every pass through it")
+    parser.add_argument("--projection", default=None, help="projection.npy that the head was trained with")
+    parser.add_argument("--tag", default=None, help="suffix for the result and calibrator files, e.g. 'head'")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    slug = slugify(args.model)
+    slug = slugify(args.model) + (f"-{args.tag}" if args.tag else "")
     out_json = Path(args.out_dir) / f"{slug}.json"
     out_md = Path(args.out_dir) / f"{slug}.md"
     out_json.parent.mkdir(parents=True, exist_ok=True)
@@ -107,11 +128,22 @@ def main() -> int:
     jev = json.loads((HERE / "jev_published.json").read_text())
 
     results = json.loads(out_json.read_text()) if out_json.exists() and not args.force else {}
-    results.update({"model": args.model, "backend": args.backend, "rows_per_split": args.rows, "version": __version__})
+    results.update({"model": args.model, "backend": args.backend, "rows_per_split": args.rows, "version": __version__,
+                    "head": args.head})
     results.setdefault("configs", {})
 
+    load_started = time.perf_counter()
     backend = load_backend(args.backend, model=args.model, template=args.template)
+    results["load_s"] = round(time.perf_counter() - load_started, 1)
+    head = None
+    if args.head:
+        from moelar.heads import PointerHeadScorer
+
+        head = PointerHeadScorer.load(args.head, args.projection or args.head.replace(".npz", ".projection.npy"))
     calibrators: dict[str, Calibrator] = {}
+
+    def engine(calibrator: Calibrator | None = None) -> Engine:
+        return Engine(backend, calibrator=calibrator, head=head)
 
     for cfg in [c.strip() for c in args.configs.split(",") if c.strip()]:
         if cfg in results["configs"] and not args.force:
@@ -124,12 +156,12 @@ def main() -> int:
             continue
         test = list(read_examples(test_path))[: args.rows]
         started = time.perf_counter()
-        raw = evaluate(Engine(backend), test)
+        raw = evaluate(engine(), test)
 
         calibrator: Calibrator | None = None
         if val_path.exists() and val_path.stat().st_size > 0:
             val = list(read_examples(val_path))[: args.rows]
-            calibrator = calibrate(Engine(backend), val, source=f"jev-bench/{cfg}/validation[:{len(val)}]")
+            calibrator = calibrate(engine(), val, source=f"jev-bench/{cfg}/validation[:{len(val)}]")
         elif cfg in CALIBRATION_FALLBACK:
             fallback = CALIBRATION_FALLBACK[cfg]
             fallback_path = Path(args.calibration_dir) / f"{fallback}.{slug}.json"
@@ -140,12 +172,12 @@ def main() -> int:
         if calibrator is not None:
             calibrators[cfg] = calibrator
             calibrator.save(Path(args.calibration_dir) / f"{cfg}.{slug}.json")
-        calibrated = evaluate(Engine(backend, calibrator=calibrator), test) if calibrator else None
+        calibrated = evaluate(engine(calibrator), test) if calibrator else None
 
         first_question = test[0].question
         k = len(first_question.get("criteria") or []) if first_question["type"] != "noul" else 2
         entry = {"k": k, "raw": asdict(raw), "calibrated": asdict(calibrated) if calibrated else None,
-                 "elapsed_s": round(time.perf_counter() - started, 1)}
+                 "elapsed_s": round(time.perf_counter() - started, 1), "peak_memory_gb": peak_memory_gb(backend)}
         results["configs"][cfg] = entry
         out_json.write_text(json.dumps(results, indent=2))
         render_table(results, jev, out_md)
