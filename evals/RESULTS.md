@@ -74,6 +74,71 @@ for the suite was 30 minutes. Full table: `evals/results/qwen3-4b-instruct-2507-
 - Older Qwen3 (2507) rather than Qwen3.5, because that is what mlx-community had
   quantized on the day.
 
+## 2026-09-22: Tier B, first pointer-head run on Qwen3-4B features
+
+Setup: 3,000 records sampled from Open-Jev, tasksource-jev, and the jev-bench train
+splits (300 per config), filtered to at most 160 options. Six whole sources held out
+(civil_comments, fever_evidence, helpsteer2_helpfulness, stsb, yelp5, and one
+tasksource task), giving 2,651 training records with one shuffled twin per choice
+record (4,076 presentations) and 349 held-out records. Features: answer-position and
+option-line hidden states, projected 2560 to 512 with a fixed seeded matrix and
+RMS-normalized. Head: rank-64 pointer residual, zero-initialized query, per-kind scale,
+noul bias. Loss: cross-entropy plus Brier plus 0.5 permutation-KL. AdamW 1e-3, gradient
+clip 1.0, ten epochs, checkpoint selected by held-out Brier (epoch 9). Training takes
+about four seconds; feature extraction took eight minutes.
+
+Test shard: 1,100 rows sampled across all 22 jev-bench test configs, about 50 each.
+These are raw head outputs versus raw backbone outputs, with no per-config calibration
+on either side. Artifacts: `evals/results/tier-b-qwen3-4b.head.npz`,
+`tier-b-qwen3-4b.history.json`, `tier-b-qwen3-4b-test.json`. The projection matrix is
+not committed; it is `moelar.train.features.projection(2560, 512, seed=0)`.
+
+| scope | acc base | acc head | ECE base | ECE head | Brier base | Brier head |
+|---|---|---|---|---|---|---|
+| macro over 22 configs | 0.658 | **0.684** | 0.305 | **0.213** | 0.587 | **0.462** |
+| micro over 1,100 rows | 0.661 | **0.689** | 0.290 | **0.174** | 0.584 | **0.455** |
+| in-distribution shard (4,076) | 0.681 | 0.851 | 0.283 | 0.030 | 0.569 | 0.207 |
+| held-out shard (349) | 0.593 | 0.613 | 0.324 | 0.244 | 0.690 | 0.573 |
+
+Per source on the test shard, largest moves:
+
+| config | base | head | held-out | note |
+|---|---|---|---|---|
+| measuring_hate_speech | 0.390 | 0.593 | | +20 |
+| go_emotions | 0.326 | 0.457 | | +13 |
+| civil_comments | 0.611 | 0.685 | yes | +7, Brier 0.758 to 0.373 |
+| ledgar | 0.741 | 0.815 | | +7 |
+| strategyqa_grounded | 0.768 | 0.839 | | +7 |
+| sst5 | 0.509 | 0.436 | | -7 |
+| mmlu | 0.683 | 0.634 | | -5 |
+| helpsteer2_helpfulness | 0.308 | 0.269 | yes | -4, Brier worse too |
+
+### Reading
+
+- **The head helps, and most of the help is calibration.** ECE drops by a third and
+  Brier by a fifth on the test shard with no per-config fitting at all, because the
+  head learns a per-kind scale on the backbone's logits. Accuracy rises 2.6 points
+  macro. In-distribution it rises 17 points, which is the usual gap between what a head
+  memorizes and what it generalizes.
+- **Held-out sources are roughly neutral on accuracy and better on Brier**, which is the
+  outcome the residual design is meant to buy: no regression on question forms the head
+  never saw, with the calibration gain carried over. On 349 rows the accuracy numbers are
+  within noise of the baseline. This matches the jev-bench maintainers' finding that a
+  residual head keeps in-distribution gains without a held-out regression.
+- **Where it hurts**: sst5 and mmlu lose 5 to 7 points on about 50 rows each. sst5 is an
+  ordinal task whose train rows the head did see, so this may be the score head
+  over-weighting adjacent levels. mmlu is knowledge, which no head fixes.
+- **Not yet compared**: head plus per-config temperature against the Tier A table
+  above, which is the fair serving comparison. That run is next.
+
+### Bugs found on the way, both now tested
+
+- Quantized output projections pack the weight; selecting rows without dequantizing
+  gave 320-wide garbage.
+- Padded option positions in the permutation-KL scatter added log-probabilities near
+  minus a billion onto option zero. The loss started at two billion. Masking before the
+  scatter fixed it; a unit test pins the zero-KL identity case with padding.
+
 ## 2026-09-22 (earlier): first three configs
 
 Superseded by the full table above; kept in git history.

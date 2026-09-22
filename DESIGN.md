@@ -221,8 +221,11 @@ opt-in for fixed schemas with a calibration set.
    lands at 0.662 macro accuracy against Jev's 0.733 with better calibrated ECE (0.088
    vs 0.113). Platt on nouls changed answers on five configs. Next: a 9B base model and
    the Tier B head, which are the two accuracy levers.
-4. **Tier B**: training pipeline on Open-Jev plus tasksource-jev plus jev-bench train
-   splits; publish weights and the eval table.
+4. **Tier B** (first run done 2026-09-22): pointer residual head on cached features
+   from Open-Jev, tasksource-jev, and jev-bench train splits. +2.6 macro accuracy and
+   a third less ECE on the test shard, held-out sources neutral on accuracy. Head,
+   projection, and history are in `evals/results/`. Next: fair comparison with
+   per-config temperature, more records, 9B backbone, then LoRA.
 5. **Extensions round two**: batched states, `not_stated`, cascade, replay cache.
 6. **Tier C** and the probe and red-team suites in CI.
 

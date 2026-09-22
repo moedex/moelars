@@ -14,6 +14,14 @@ import numpy as np
 KIND_INDEX = {"noul": 0, "choice": 1, "score": 2, "multi": 0}
 
 
+def rms_normalize(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """Scale each vector (last axis) to unit RMS. Backbone hidden states have norms in the
+    hundreds; the head sees unit-scale inputs at both training and serving time."""
+    x = np.asarray(x, dtype=np.float32)
+    rms = np.sqrt((x * x).mean(axis=-1, keepdims=True)) + eps
+    return x / rms
+
+
 class PointerHeadScorer:
     def __init__(self, q: np.ndarray, k: np.ndarray, log_s: np.ndarray, bias: np.ndarray, projection: np.ndarray):
         self.q = q.astype(np.float32)  # (rank, proj_dim), torch/mlx Linear layout
@@ -29,7 +37,8 @@ class PointerHeadScorer:
         return cls(data["q.weight"], data["k.weight"], data["log_s"], data["bias"], np.load(projection_path))
 
     def project(self, hidden: np.ndarray) -> np.ndarray:
-        return hidden.astype(np.float32) @ self.projection
+        """Fixed projection then RMS normalization, matching `moelar.train.residual.Shard`."""
+        return rms_normalize(hidden.astype(np.float32) @ self.projection)
 
     def adjust(self, z: np.ndarray, h_ans: np.ndarray, h_opt: np.ndarray, kind: str) -> np.ndarray:
         """Return adjusted logits for one row. h_ans (proj_dim,), h_opt (K, proj_dim), z (K,)."""

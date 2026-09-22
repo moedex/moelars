@@ -40,6 +40,25 @@ def test_zero_init_head_reproduces_backbone(tmp_path):
     assert baseline(mx, shard)["acc"] == evaluate(mx, head, shard)["acc"]
 
 
+def test_permutation_loss_ignores_padding():
+    """A shuffled twin of a padded row must give zero KL at the identity head."""
+    from moelar.train.residual import perm_loss_fn
+
+    p, k_max = 8, 5
+    head = build_head(p, rank=4)
+    h_ans = np.zeros((1, p), np.float32)
+    h_opt = np.zeros((1, k_max, p), np.float32)
+    z_base = np.array([[2.0, 0.5, -1.0, 0.0, 0.0]], np.float32)  # K=3 real options, 2 padded
+    z_shuf = np.array([[-1.0, 2.0, 0.5, 0.0, 0.0]], np.float32)  # same options in order [2, 0, 1]
+    mask = np.array([[True, True, True, False, False]])
+    perm = np.array([[2, 0, 1, -1, -1]], np.int32)
+    kind = np.array([1])
+    base = (mx.array(h_ans), mx.array(h_opt), mx.array(z_base), mx.array(mask), mx.array(kind), None)
+    shuf = (mx.array(h_ans), mx.array(h_opt), mx.array(z_shuf), mx.array(mask), mx.array(kind), None)
+    kl = float(perm_loss_fn(mx, head, base, shuf, mx.array(perm)))
+    assert abs(kl) < 1e-4, kl
+
+
 def test_training_improves_on_backbone(tmp_path):
     shard = _synthetic_shard(tmp_path)
     before = baseline(mx, shard)["acc"]

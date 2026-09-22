@@ -52,6 +52,8 @@ def main() -> int:
     parser.add_argument("--max-options", type=int, default=64, help="skip records with more options")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="data/features")
+    parser.add_argument("--sources-only", action="store_true",
+                        help="only write sources.json (record id -> source), no model")
     args = parser.parse_args()
 
     out = Path(args.out)
@@ -68,6 +70,20 @@ def main() -> int:
     print(f"records: {len(records)} -> train {len(train)} / heldout {len(heldout)} "
           f"(held-out sources: {sorted({r.source for r in heldout})[:8]}...)", flush=True)
 
+    test: list[Record] = []
+    if args.test_records:
+        test = _records_from_eval_jsonl(args.test_records)
+        test = [r for r in test if len(r.options) <= args.max_options]
+        if args.test_limit:
+            rng.shuffle(test)
+            test = test[: args.test_limit]
+    sources = {r.id: r.source for r in [*train, *heldout, *test]}
+    sources["__heldout__"] = sorted({r.source for r in heldout})
+    (out / "sources.json").write_text(json.dumps(sources))
+    if args.sources_only:
+        print(f"wrote {out / 'sources.json'} with {len(sources) - 1} ids")
+        return 0
+
     backend = MLXBackend(args.model)
     proj = projection(backend.hidden_size, args.proj_dim, seed=args.seed)
     np.save(out / "projection.npy", proj)
@@ -83,12 +99,7 @@ def main() -> int:
                           "sources": sorted({r.source for r in subset})}
         print(f"{name}: {n} presentations from {len(subset)} records in {elapsed:.0f}s", flush=True)
 
-    if args.test_records:
-        test = _records_from_eval_jsonl(args.test_records)
-        test = [r for r in test if len(r.options) <= args.max_options]
-        if args.test_limit:
-            rng.shuffle(test)
-            test = test[: args.test_limit]
+    if test:
         started = time.perf_counter()
         n = write_shard(extract(backend, test, proj, shuffles=0, seed=args.seed), out / "test.npz")
         manifest["test"] = {"records": len(test), "presentations": n,

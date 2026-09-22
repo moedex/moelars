@@ -32,9 +32,11 @@ def _mlx():
 
 class Shard:
     def __init__(self, path: str | Path):
+        from moelar.heads import rms_normalize
+
         data = np.load(path)
-        self.h_ans = data["h_ans"].astype(np.float32)
-        self.h_opt = data["h_opt"].astype(np.float32)
+        self.h_ans = rms_normalize(data["h_ans"])
+        self.h_opt = rms_normalize(data["h_opt"])
         self.z = data["z"]
         self.target = data["target"]
         self.mask = data["mask"]
@@ -112,7 +114,10 @@ def perm_loss_fn(mx, head, base_batch, shuf_batch, perm_shuf):
     s_h, s_o, s_z, s_m, s_k, _ = shuf_batch
     p_base = mx.exp(_log_softmax(mx, head(b_h, b_o, b_z, b_m, b_k)))
     logp_shuf = _log_softmax(mx, head(s_h, s_o, s_z, s_m, s_k))
-    # realign: shuffled position j holds canonical option perm[j]; scatter back
+    # Padded positions hold log-probabilities near -1e9; zero them before the scatter so
+    # they never land on a real option. Realign: shuffled position j holds canonical
+    # option perm[j].
+    logp_shuf = mx.where(s_m, logp_shuf, mx.zeros_like(logp_shuf))
     rows = mx.arange(perm_shuf.shape[0])[:, None]
     safe_perm = mx.maximum(perm_shuf, 0)
     aligned = mx.zeros_like(logp_shuf)
@@ -183,6 +188,7 @@ def train(
     print("baseline train:", baseline(mx, train_shard), flush=True)
     if heldout is not None:
         print("baseline heldout:", baseline(mx, heldout), flush=True)
+    best_score, best_params = None, None
     for epoch in range(epochs):
         order = rng.permutation(train_shard.n)
         started, total, steps = time.perf_counter(), 0.0, 0
@@ -196,6 +202,7 @@ def train(
                 shuf_batch = _batch(mx, train_shard, pair_idx[:, 1])
                 perm_shuf = mx.array(train_shard.perm[pair_idx[:, 1]])
             loss, grads = grad_fn(head, batch, base_batch, shuf_batch, perm_shuf)
+            grads, _ = optim.clip_grad_norm(grads, max_norm=1.0)
             optimizer.update(head, grads)
             mx.eval(head.parameters(), optimizer.state)
             total += float(loss)
@@ -205,8 +212,19 @@ def train(
         metrics["train"] = evaluate(mx, head, train_shard)
         if heldout is not None:
             metrics["heldout"] = evaluate(mx, head, heldout)
+        # Select by held-out Brier when held-out sources exist; in-distribution gains are
+        # cheap, generalization is what we are buying.
+        score = -metrics["heldout"]["brier"] if heldout is not None else -metrics["train"]["brier"]
+        if best_score is None or score > best_score:
+            from mlx.utils import tree_flatten, tree_unflatten
+
+            best_score = score
+            best_params = tree_unflatten([(k, mx.array(v)) for k, v in tree_flatten(head.parameters())])
+            metrics["selected"] = True
         history.append(metrics)
         print(json.dumps(metrics), flush=True)
+    if best_params is not None:
+        head.update(best_params)
     if out:
         save_head(head, out, history)
     return head, history
