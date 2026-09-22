@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import random
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,9 +27,8 @@ from moelar.backends.mlx import MLXBackend
 from moelar.labels import assign_labels
 from moelar.render import compose_prompt, render_choice, render_content, render_noul, render_score
 from moelar.schema import ChoiceQuestion, NoulQuestion, ScoreQuestion
+from moelar.spans import char_offsets_to_token_indexes, option_end_char_offsets
 from moelar.train.data import Record
-
-OPTION_LINE = re.compile(r"^([A-Z]{1,2})\) ", re.MULTILINE)
 
 
 @dataclass
@@ -60,20 +58,7 @@ def _render(record: Record, labels: list[str], order: list[int]) -> tuple[str, t
 
 def _option_end_token_indexes(prefix: str, suffix: str, offsets: list[tuple[int, int]], count: int) -> list[int]:
     """Token index of the last token of each option line, in presentation order."""
-    ends: list[int] = []
-    base = len(prefix)
-    for match in OPTION_LINE.finditer(suffix):
-        line_end = suffix.find("\n", match.start())
-        if line_end == -1:
-            line_end = len(suffix)
-        char_end = base + line_end  # exclusive char offset of the line end
-        index = max(i for i, (s, e) in enumerate(offsets) if s < char_end) if offsets else 0
-        ends.append(index)
-        if len(ends) == count:
-            break
-    if len(ends) != count:
-        raise ValueError(f"found {len(ends)} option lines, expected {count}")
-    return ends
+    return char_offsets_to_token_indexes(offsets, option_end_char_offsets(prefix, suffix, count))
 
 
 def extract(

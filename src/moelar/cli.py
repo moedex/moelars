@@ -15,7 +15,12 @@ from moelar.engine import Engine
 def _engine_from_args(args: argparse.Namespace) -> Engine:
     backend = load_backend(args.backend, model=args.model, template=args.template)
     calibrator = Calibrator.load(args.calibration) if args.calibration else None
-    return Engine(backend, calibrator=calibrator, version=__version__)
+    head = None
+    if args.head:
+        from moelar.heads import PointerHeadScorer
+
+        head = PointerHeadScorer.load(args.head, args.projection or str(args.head).replace(".npz", ".projection.npy"))
+    return Engine(backend, calibrator=calibrator, version=__version__, head=head)
 
 
 def _add_backend_args(parser: argparse.ArgumentParser) -> None:
@@ -23,6 +28,8 @@ def _add_backend_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", default=None, help="Model path or Hugging Face id for the backend")
     parser.add_argument("--template", default=None, help="Chat template name: plain, chatml, gemma, llama3")
     parser.add_argument("--calibration", default=None, help="Path to a calibrator JSON produced by `moelar calibrate`")
+    parser.add_argument("--head", default=None, help="Pointer head npz from `python -m moelar.train.residual`")
+    parser.add_argument("--projection", default=None, help="projection.npy from feature extraction")
 
 
 def cmd_serve(args: argparse.Namespace) -> int:

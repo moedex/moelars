@@ -15,6 +15,7 @@ import numpy as np
 
 from moelar.backends.base import Backend
 from moelar.render import TEMPLATES, TemplateFn
+from moelar.spans import char_offsets_to_token_indexes, option_end_char_offsets
 
 
 class MLXBackend(Backend):
@@ -133,22 +134,57 @@ class MLXBackend(Backend):
         return cache
 
     def label_logits(self, prefix: str, suffixes: list[str], labels: list[tuple[str, ...]]) -> list[np.ndarray]:
+        return [z for z, _, _ in self._score_rows(prefix, suffixes, labels, want_hidden=False)]
+
+    def label_logits_with_features(
+        self, prefix: str, suffixes: list[str], labels: list[tuple[str, ...]]
+    ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """Per suffix: (label logits, hidden at the answer position, hidden at each option line end).
+
+        Hidden states are unprojected (hidden_size). The pointer head projects them.
+        """
+        return self._score_rows(prefix, suffixes, labels, want_hidden=True)
+
+    def _hidden_forward(self, ids: list[int], cache: Any):
+        """Run the transformer body only; returns (T, hidden) for these positions."""
+        mx = self._mx
+        hidden = self.model.model(mx.array(ids)[None], cache=cache)[0]
+        mx.eval(hidden)
+        return hidden
+
+    def _score_rows(
+        self, prefix: str, suffixes: list[str], labels: list[tuple[str, ...]], want_hidden: bool
+    ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        mx = self._mx
         prefix_ids = self._encode(prefix)
         prefix_cache = self._make_cache(self.model)
         self._forward(prefix_ids, prefix_cache)
         snapshot = self._snapshot(prefix_cache)
 
-        results: list[np.ndarray] = []
+        results = []
         for suffix, row_labels in zip(suffixes, labels, strict=True):
-            full_ids = self._encode(prefix + suffix)
-            shares_prefix = full_ids[: len(prefix_ids)] == prefix_ids
-            if snapshot is not None and shares_prefix:
-                cache = self._restore(snapshot)
-                vocab_logits = self._forward(full_ids[len(prefix_ids) :], cache)
-            else:
-                vocab_logits = self._forward(full_ids, self._make_cache(self.model))
             ids = [self._label_id(label) for label in row_labels]
             if any(i is None for i in ids):
                 raise ValueError(f"labels not single-token for this tokenizer: {row_labels}")
-            results.append(vocab_logits[np.asarray(ids)].astype(np.float64))
+            full_ids = self._encode(prefix + suffix)
+            shares_prefix = snapshot is not None and full_ids[: len(prefix_ids)] == prefix_ids
+            if shares_prefix:
+                cache, run_ids, offset = self._restore(snapshot), full_ids[len(prefix_ids) :], len(prefix_ids)
+            else:
+                cache, run_ids, offset = self._make_cache(self.model), full_ids, 0
+
+            if not want_hidden:
+                vocab_logits = self._forward(run_ids, cache)
+                results.append((vocab_logits[np.asarray(ids)].astype(np.float64), None, None))
+                continue
+
+            hidden = self._hidden_forward(run_ids, cache)  # (T_run, hidden)
+            rows = self.label_rows(list(row_labels))  # (K, hidden)
+            h_ans = np.asarray(hidden[-1].astype(mx.float32))
+            z = (rows @ h_ans).astype(np.float64)
+            offsets = self.token_offsets(prefix + suffix)
+            ends = option_end_char_offsets(prefix, suffix, len(row_labels))
+            token_idx = [max(i - offset, 0) for i in char_offsets_to_token_indexes(offsets, ends)]
+            h_opt = np.asarray(hidden[mx.array(token_idx)].astype(mx.float32))
+            results.append((z, h_ans, h_opt))
         return results

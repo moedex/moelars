@@ -140,7 +140,12 @@ def evaluate(mx, head, shard: Shard, batch_size: int = 256) -> dict[str, float]:
         n += len(idx)
     from moelar.calibration import ece
 
-    return {"n": n, "acc": correct / n, "ece": ece(np.asarray(conf), np.asarray(hits, float)), "brier": brier / n}
+    return {
+        "n": int(n),
+        "acc": float(correct / n),
+        "ece": float(ece(np.asarray(conf), np.asarray(hits, float))),
+        "brier": float(brier / n),
+    }
 
 
 def baseline(mx, shard: Shard) -> dict[str, float]:
@@ -203,11 +208,21 @@ def train(
         history.append(metrics)
         print(json.dumps(metrics), flush=True)
     if out:
-        Path(out).parent.mkdir(parents=True, exist_ok=True)
-        flat = dict(__import__("mlx.utils", fromlist=["tree_flatten"]).tree_flatten(head.parameters()))
-        mx.save_safetensors(str(out), flat, metadata={"rank": str(rank), "proj_dim": str(train_shard.h_ans.shape[1])})
-        Path(str(out) + ".history.json").write_text(json.dumps(history, indent=2))
+        save_head(head, out, history)
     return head, history
+
+
+def save_head(head, out: str | Path, history: list | None = None) -> None:
+    """Save as npz with flat keys (q.weight, k.weight, log_s, bias) for the numpy serving scorer."""
+    from mlx.utils import tree_flatten
+
+    mx, _, _ = _mlx()
+    path = Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flat = {name: np.asarray(value.astype(mx.float32)) for name, value in tree_flatten(head.parameters())}
+    np.savez(path.with_suffix(".npz"), **flat)
+    if history is not None:
+        path.with_suffix(".history.json").write_text(json.dumps(history, indent=2))
 
 
 def main() -> int:
@@ -220,7 +235,7 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--brier-weight", type=float, default=1.0)
     parser.add_argument("--perm-weight", type=float, default=0.5)
-    parser.add_argument("--out", default="checkpoints/pointer_head.safetensors")
+    parser.add_argument("--out", default="checkpoints/pointer_head.npz")
     args = parser.parse_args()
     train_shard = Shard(args.train)
     heldout = Shard(args.heldout) if args.heldout else None

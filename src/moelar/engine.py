@@ -16,6 +16,7 @@ import numpy as np
 
 from moelar.backends.base import Backend
 from moelar.calibration import Calibrator
+from moelar.heads import PointerHeadScorer
 from moelar.labels import assign_labels
 from moelar.primitives import (
     choice_confidence,
@@ -58,10 +59,19 @@ class Scored:
 
 
 class Engine:
-    def __init__(self, backend: Backend, calibrator: Calibrator | None = None, version: str = "0.0.1") -> None:
+    def __init__(
+        self,
+        backend: Backend,
+        calibrator: Calibrator | None = None,
+        version: str = "0.0.1",
+        head: PointerHeadScorer | None = None,
+    ) -> None:
         self.backend = backend
         self.calibrator = calibrator or Calibrator()
         self.version = version
+        self.head = head
+        if head is not None and not hasattr(backend, "label_logits_with_features"):
+            raise ValueError(f"backend {backend.name!r} cannot supply hidden states for a pointer head")
         self.labels = assign_labels(MAX_CHOICE_OPTIONS, backend.is_single_token)
 
     # ----------------------------------------------------------------- public
@@ -111,7 +121,15 @@ class Engine:
         for prefix, members in groups.items():
             suffixes = [s for _, s in members]
             labels = [rows[i].labels for i, _ in members]
-            logits = self.backend.label_logits(prefix, suffixes, labels)
+            if self.head is None:
+                logits = self.backend.label_logits(prefix, suffixes, labels)
+            else:
+                logits = []
+                for (index, _), (z, h_ans, h_opt) in zip(
+                    members, self.backend.label_logits_with_features(prefix, suffixes, labels), strict=True  # type: ignore[attr-defined]
+                ):
+                    kind = "noul" if rows[index].kind == "multi" else rows[index].kind
+                    logits.append(self.head.adjust(z, self.head.project(h_ans), self.head.project(h_opt), kind))
             for (index, _), row_logits in zip(members, logits, strict=True):
                 row = rows[index]
                 temperature = self.calibrator.temperature_for(row.kind)
