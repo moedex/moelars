@@ -27,6 +27,21 @@ def test_fit_platt_learns_bias():
     assert b > 0.5
 
 
+def test_fit_platt_survives_wide_nearly_separable_logits():
+    """Raw LM logit differences: tens of units wide, 89% accurate. The fit must not flip or explode."""
+    rng = np.random.default_rng(2)
+    labels = (rng.random(200) < 0.6).astype(float)
+    z = np.where(labels > 0.5, 1.0, -1.0) * rng.uniform(8, 30, 200)
+    flip = rng.random(200) < 0.11
+    z[flip] = -z[flip]
+    a, b = fit_platt(z, labels)
+    p = 1 / (1 + np.exp(-(a * z + b)))
+    assert a > 0
+    assert np.isfinite(a) and np.isfinite(b)
+    assert ((p > 0.5) == (labels > 0.5)).mean() >= 0.85
+    assert p.max() < 0.999  # no longer pinned to 1.0
+
+
 def test_ece_and_brier_basic():
     conf = np.array([0.9, 0.9, 0.6, 0.6])
     hit = np.array([1, 1, 0, 1])

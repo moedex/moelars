@@ -26,7 +26,7 @@ def softmax(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
 
 
 def sigmoid(x: float) -> float:
-    return float(1.0 / (1.0 + np.exp(-x)))
+    return float(1.0 / (1.0 + np.exp(-np.clip(x, -500.0, 500.0))))
 
 
 def logit(p: float, eps: float = 1e-6) -> float:

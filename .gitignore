@@ -10,5 +10,6 @@ build/
 *.jsonl
 !evals/samples/*.jsonl
 models/
-calibration/*.json
+data/
+checkpoints/
 .env

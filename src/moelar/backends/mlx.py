@@ -65,6 +65,50 @@ class MLXBackend(Backend):
     def count_tokens(self, text: str) -> int:
         return len(self._encode(text))
 
+    # ----------------------------------------------------------------- training features
+
+    @property
+    def hidden_size(self) -> int:
+        return int(self.model.args.hidden_size)
+
+    def hidden_states(self, text: str) -> np.ndarray:
+        """Final-layer hidden states for every token of `text`, shape (T, hidden_size), float32."""
+        mx = self._mx
+        ids = self._encode(text)
+        hidden = self.model.model(mx.array(ids)[None])[0]
+        mx.eval(hidden)
+        return np.asarray(hidden.astype(mx.float32))
+
+    def label_rows(self, labels: list[str]) -> np.ndarray:
+        """Output-projection rows for the label tokens, shape (K, hidden_size). z = rows @ h."""
+        mx = self._mx
+        ids = [self._label_id(label) for label in labels]
+        if any(i is None for i in ids):
+            raise ValueError(f"labels not single-token for this tokenizer: {labels}")
+        if self.model.args.tie_word_embeddings:
+            weight = self.model.model.embed_tokens.weight
+        else:
+            weight = self.model.lm_head.weight
+        rows = weight[mx.array(ids)]
+        mx.eval(rows)
+        return np.asarray(rows.astype(mx.float32))
+
+    def token_offsets(self, text: str) -> list[tuple[int, int]]:
+        """Character span of each token, aligned with `hidden_states(text)`."""
+        base = getattr(self.tokenizer, "_tokenizer", self.tokenizer)
+        try:
+            encoded = base(text, add_special_tokens=False, return_offsets_mapping=True)
+            return [tuple(span) for span in encoded["offset_mapping"]]
+        except Exception:  # pragma: no cover - slow tokenizer fallback
+            spans: list[tuple[int, int]] = []
+            count = 0
+            for end in range(1, len(text) + 1):
+                n = len(self._encode(text[:end]))
+                if n > count:
+                    spans.extend((end - 1, end) for _ in range(n - count))
+                    count = n
+            return spans
+
     # ----------------------------------------------------------------- inference
 
     def _forward(self, ids: list[int], cache: Any) -> np.ndarray:

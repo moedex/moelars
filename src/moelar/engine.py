@@ -20,7 +20,6 @@ from moelar.labels import assign_labels
 from moelar.primitives import (
     choice_confidence,
     expected_score,
-    logit,
     order_sensitivity,
     round_probs,
     score_confidence,
@@ -135,11 +134,11 @@ class Engine:
             ablations = [s for s in items if s.row.variant.startswith("ablate:")]
 
             if question.type == "noul":
-                p_yes = self._noul_prob(base[0].probs[0])
+                p_yes = self.noul_prob(self._yes_logit(base[0]))
                 answer: Answer = NoulAnswer(noul=round(p_yes, 4))
                 if options.abstain_margin is not None:
                     answer.abstain = abs(p_yes - 0.5) * 2 < options.abstain_margin
-                effects = [(s.row.ablated_span, abs(self._noul_prob(s.probs[0]) - p_yes)) for s in ablations]
+                effects = [(s.row.ablated_span, abs(self.noul_prob(self._yes_logit(s)) - p_yes)) for s in ablations]
                 answer.evidence = self._evidence(effects, options.explain)
 
             elif question.type == "choice":
@@ -180,7 +179,7 @@ class Engine:
                 per_option: dict[str, float] = {}
                 for s in base:
                     key = s.row.variant.split(":", 1)[1]
-                    per_option[key] = round(self._noul_prob(s.probs[0], kind="multi"), 4)
+                    per_option[key] = round(self.noul_prob(self._yes_logit(s), kind="multi"), 4)
                 answer = MultiAnswer(
                     probabilities=per_option,
                     selected=[k for k, p in per_option.items() if p >= 0.5],
@@ -190,19 +189,30 @@ class Engine:
                 for s in ablations:
                     _, unit, key = s.row.variant.split(":", 2)
                     spans[unit] = s.row.ablated_span
-                    by_unit[unit].append(abs(self._noul_prob(s.probs[0], kind="multi") - per_option.get(key, 0.0)))
+                    ablated = self.noul_prob(self._yes_logit(s), kind="multi")
+                    by_unit[unit].append(abs(ablated - per_option.get(key, 0.0)))
                 effects = [(spans[unit], float(np.mean(values))) for unit, values in by_unit.items()]
                 answer.evidence = self._evidence(effects, options.explain)
 
             answers[qid] = answer
         return answers
 
-    def _noul_prob(self, raw_p_yes: float, kind: str = "noul") -> float:
+    @staticmethod
+    def _yes_logit(item: Scored) -> float:
+        """Raw yes-minus-no logit for a two-label row."""
+        return float(item.logits[0] - item.logits[1])
+
+    def noul_prob(self, yes_logit: float, kind: str = "noul") -> float:
+        """P(yes) from the raw yes-minus-no logit.
+
+        A fitted Platt pair (a, b) gives sigmoid(a * z + b). Without one, the kind's
+        temperature applies: sigmoid(z / T). Temperature is the special case a = 1/T, b = 0.
+        """
         platt = self.calibrator.platt_for(kind)
         if platt is None:
-            return float(raw_p_yes)
+            return sigmoid(yes_logit / self.calibrator.temperature_for(kind))
         a, b = platt
-        return sigmoid(a * logit(float(raw_p_yes)) + b)
+        return sigmoid(a * yes_logit + b)
 
     @staticmethod
     def _realign(item: Scored, canonical_keys: tuple[str, ...]) -> np.ndarray:

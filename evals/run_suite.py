@@ -1,0 +1,164 @@
+"""Run raw and calibrated evals over jev-bench configs with one loaded backend.
+
+Writes results incrementally so a crash keeps what finished, skips configs already in
+the output unless --force, and renders a markdown table with the published Jev column.
+
+    uv run python evals/run_suite.py --backend mlx --model mlx-community/Qwen3-4B-Instruct-2507-4bit
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import time
+from dataclasses import asdict
+from pathlib import Path
+
+from moelar import __version__
+from moelar.backends import load_backend
+from moelar.calibration import Calibrator
+from moelar.engine import Engine
+from moelar.evalset import calibrate, evaluate, read_examples
+
+HERE = Path(__file__).resolve().parent
+
+# mnli before chaosnli so chaosnli can borrow mnli's calibrator (it has no validation split).
+ALL_CONFIGS = [
+    "banking77", "boolq", "sst5",
+    "clinc150", "massive", "ledgar", "go_emotions", "mmlu", "arc_challenge", "mnli", "chaosnli",
+    "yelp5", "helpsteer2_helpfulness", "helpsteer2_verbosity", "stsb", "measuring_hate_speech",
+    "fever_evidence", "paws", "civil_comments", "sms_spam", "strategyqa_closed", "strategyqa_grounded",
+]
+CALIBRATION_FALLBACK = {"chaosnli": "mnli"}
+
+
+def slugify(model: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", model.lower().split("/")[-1]).strip("-")
+
+
+def macro(rows: list[dict], key: str) -> float | None:
+    values = [r[key] for r in rows if r.get(key) is not None]
+    return round(sum(values) / len(values), 3) if values else None
+
+
+def render_table(results: dict, jev: dict, path: Path) -> None:
+    lines = [
+        f"# {results['model']}",
+        "",
+        f"Backend `{results['backend']}`, {results['rows_per_split']} test rows per config, calibration fitted on "
+        f"{results['rows_per_split']} validation rows. MoeLAR {results['version']}. Jev column quoted from "
+        "jev-bench's published jev-1.13.0 run on full splits.",
+        "",
+        "| config | prim | K | acc raw | acc cal | ECE raw | ECE cal | Brier raw | Brier cal | cov@5% | ms/row "
+        "| Jev acc | Jev ECE | Jev Brier |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    summary_rows = []
+    for cfg in ALL_CONFIGS:
+        entry = results["configs"].get(cfg)
+        if not entry:
+            continue
+        raw, cal, pub = entry["raw"], entry.get("calibrated"), jev.get(cfg, {})
+        kind = next(iter(raw["per_kind"]))
+        c = cal or raw
+        lines.append(
+            f"| {cfg} | {kind} | {entry.get('k', '')} | {raw['accuracy']:.3f} | {c['accuracy']:.3f} | "
+            f"{raw['ece']:.3f} | {c['ece']:.3f} | {raw['brier']:.3f} | {c['brier']:.3f} | "
+            f"{c['coverage_at_5pct']:.2f} | {raw['ms_per_example']:.0f} | "
+            f"{pub.get('acc', '')} | {pub.get('ece', '')} | {pub.get('brier', '')} |"
+        )
+        summary_rows.append(
+            {"kind": kind, "acc": c["accuracy"], "ece": c["ece"], "brier": c["brier"],
+             "jev_acc": pub.get("acc"), "jev_ece": pub.get("ece"), "jev_brier": pub.get("brier")}
+        )
+    lines += ["", "## Macro averages over the configs above (calibrated)", "",
+              "| scope | n | acc | ECE | Brier | Jev acc | Jev ECE | Jev Brier |", "|---|---|---|---|---|---|---|---|"]
+    for scope in ["all", "choice", "score", "noul"]:
+        rows = summary_rows if scope == "all" else [r for r in summary_rows if r["kind"] == scope]
+        if not rows:
+            continue
+        lines.append(
+            f"| {scope} | {len(rows)} | {macro(rows, 'acc')} | {macro(rows, 'ece')} | {macro(rows, 'brier')} | "
+            f"{macro(rows, 'jev_acc')} | {macro(rows, 'jev_ece')} | {macro(rows, 'jev_brier')} |"
+        )
+    path.write_text("\n".join(lines) + "\n")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", default="mlx")
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--template", default=None)
+    parser.add_argument("--configs", default=",".join(ALL_CONFIGS))
+    parser.add_argument("--rows", type=int, default=200)
+    parser.add_argument("--data-dir", default=str(HERE / "data"))
+    parser.add_argument("--out-dir", default=str(HERE / "results"))
+    parser.add_argument("--calibration-dir", default=str(HERE.parent / "calibration"))
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    slug = slugify(args.model)
+    out_json = Path(args.out_dir) / f"{slug}.json"
+    out_md = Path(args.out_dir) / f"{slug}.md"
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    Path(args.calibration_dir).mkdir(parents=True, exist_ok=True)
+    jev = json.loads((HERE / "jev_published.json").read_text())
+
+    results = json.loads(out_json.read_text()) if out_json.exists() and not args.force else {}
+    results.update({"model": args.model, "backend": args.backend, "rows_per_split": args.rows, "version": __version__})
+    results.setdefault("configs", {})
+
+    backend = load_backend(args.backend, model=args.model, template=args.template)
+    calibrators: dict[str, Calibrator] = {}
+
+    for cfg in [c.strip() for c in args.configs.split(",") if c.strip()]:
+        if cfg in results["configs"] and not args.force:
+            print(f"[{cfg}] cached", flush=True)
+            continue
+        test_path = Path(args.data_dir) / f"{cfg}.test.jsonl"
+        val_path = Path(args.data_dir) / f"{cfg}.validation.jsonl"
+        if not test_path.exists():
+            print(f"[{cfg}] missing {test_path}", flush=True)
+            continue
+        test = list(read_examples(test_path))[: args.rows]
+        started = time.perf_counter()
+        raw = evaluate(Engine(backend), test)
+
+        calibrator: Calibrator | None = None
+        if val_path.exists() and val_path.stat().st_size > 0:
+            val = list(read_examples(val_path))[: args.rows]
+            calibrator = calibrate(Engine(backend), val, source=f"jev-bench/{cfg}/validation[:{len(val)}]")
+        elif cfg in CALIBRATION_FALLBACK:
+            fallback = CALIBRATION_FALLBACK[cfg]
+            fallback_path = Path(args.calibration_dir) / f"{fallback}.{slug}.json"
+            if fallback in calibrators:
+                calibrator = calibrators[fallback]
+            elif fallback_path.exists():
+                calibrator = Calibrator.load(fallback_path)
+        if calibrator is not None:
+            calibrators[cfg] = calibrator
+            calibrator.save(Path(args.calibration_dir) / f"{cfg}.{slug}.json")
+        calibrated = evaluate(Engine(backend, calibrator=calibrator), test) if calibrator else None
+
+        first_question = test[0].question
+        k = len(first_question.get("criteria") or []) if first_question["type"] != "noul" else 2
+        entry = {"k": k, "raw": asdict(raw), "calibrated": asdict(calibrated) if calibrated else None,
+                 "elapsed_s": round(time.perf_counter() - started, 1)}
+        results["configs"][cfg] = entry
+        out_json.write_text(json.dumps(results, indent=2))
+        render_table(results, jev, out_md)
+        c = calibrated or raw
+        print(
+            f"[{cfg}] raw acc={raw.accuracy:.3f} ece={raw.ece:.3f} | cal acc={c.accuracy:.3f} ece={c.ece:.3f} "
+            f"brier={c.brier:.3f} cov@5%={c.coverage_at_5pct:.2f} | {raw.ms_per_example:.0f}ms/row "
+            f"{entry['elapsed_s']}s",
+            flush=True,
+        )
+    print(f"wrote {out_json} and {out_md}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

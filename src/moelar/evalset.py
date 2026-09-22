@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from moelar.calibration import Calibrator, brier, coverage_at_error, ece, fit_temperature
+from moelar.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
 from moelar.engine import Engine
 from moelar.primitives import softmax
 from moelar.schema import SystemOneRequest
@@ -72,6 +72,7 @@ class EvalResult:
     per_kind: dict[str, dict[str, float]]
     ms_per_example: float = 0.0
     temperatures: dict[str, float] | None = None
+    platt: dict[str, tuple[float, float] | None] | None = None
 
 
 def _target_vector(example: Example, keys: tuple[str, ...]) -> np.ndarray:
@@ -103,7 +104,11 @@ def evaluate(engine: Engine, examples: list[Example]) -> EvalResult:
     confidences, correct, probs, targets = [], [], [], []
     per_kind: dict[str, list[bool]] = {}
     for example, kind, keys, logits in collected:
-        p = softmax(logits, engine.calibrator.temperature_for(kind))
+        if kind in {"noul", "multi"}:
+            p_yes = engine.noul_prob(float(logits[0] - logits[1]), kind)
+            p = np.asarray([p_yes, 1.0 - p_yes])
+        else:
+            p = softmax(logits, engine.calibrator.temperature_for(kind))
         label = _noul_keys_label(example.label) if kind in {"noul", "multi"} else example.label
         target = _target_vector(example, keys) if kind not in {"noul", "multi"} else np.asarray(
             [1.0 if label == "yes" else 0.0, 0.0 if label == "yes" else 1.0]
@@ -128,6 +133,7 @@ def evaluate(engine: Engine, examples: list[Example]) -> EvalResult:
         per_kind={k: {"count": len(v), "accuracy": float(np.mean(v))} for k, v in per_kind.items()},
         ms_per_example=elapsed_ms / max(len(collected), 1),
         temperatures={k: engine.calibrator.temperature_for(k) for k in sorted({c[1] for c in collected})},
+        platt={k: engine.calibrator.platt_for(k) for k in sorted({c[1] for c in collected})},
     )
 
 
@@ -145,5 +151,12 @@ def calibrate(engine: Engine, examples: list[Example], source: str | None = None
         logits_list.append(np.asarray(logits))
         targets_list.append(target)
     for kind, (logits_list, targets_list) in by_kind.items():
-        calibrator.temperatures[kind] = fit_temperature(logits_list, targets_list)
+        if kind in {"noul", "multi"}:
+            # Platt on the raw yes-minus-no logit subsumes temperature (a = 1/T) and adds a bias.
+            z = np.asarray([float(row[0] - row[1]) for row in logits_list])
+            y = np.asarray([float(t[0]) for t in targets_list])
+            calibrator.platt[kind] = fit_platt(z, y)
+            calibrator.temperatures[kind] = 1.0
+        else:
+            calibrator.temperatures[kind] = fit_temperature(logits_list, targets_list)
     return calibrator

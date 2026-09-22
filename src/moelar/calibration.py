@@ -66,15 +66,38 @@ def fit_temperature(logit_rows: list[np.ndarray], targets: list[np.ndarray]) -> 
     return best_t
 
 
-def fit_platt(scores: np.ndarray, labels: np.ndarray, l2: float = 1e-3, iterations: int = 50) -> tuple[float, float]:
-    """Fit sigmoid(a * s + b) to binary labels by Newton's method with light L2 on a."""
-    s = np.asarray(scores, dtype=np.float64)
-    y = np.asarray(labels, dtype=np.float64)
+def _logistic_loss(z: np.ndarray, y: np.ndarray) -> float:
+    # log(1 + exp(z)) - y * z, computed stably
+    return float((np.logaddexp(0.0, z) - y * z).sum())
+
+
+def fit_platt(scores: np.ndarray, labels: np.ndarray, l2: float = 1e-2, iterations: int = 100) -> tuple[float, float]:
+    """Fit sigmoid(a * s + b) to binary labels.
+
+    Scores are standardized before fitting so the L2 penalty and the step sizes are
+    scale-free, and each Newton step is backtracked until the penalized loss decreases.
+    Raw language-model logit differences can be tens of units wide and nearly separable,
+    which makes an undamped Newton fit overshoot into a flipped or exploding solution.
+    Platt's original label smoothing keeps the separable case finite.
+    """
+    s_raw = np.asarray(scores, dtype=np.float64)
+    y_raw = np.asarray(labels, dtype=np.float64)
+    if s_raw.size == 0:
+        return 1.0, 0.0
+    scale = float(s_raw.std()) or 1.0
+    s = s_raw / scale
+    n_pos, n_neg = float(y_raw.sum()), float((1 - y_raw).sum())
+    y = np.where(y_raw > 0.5, (n_pos + 1) / (n_pos + 2), 1 / (n_neg + 2)) if n_pos and n_neg else y_raw
+
+    def penalized(a: float, b: float) -> float:
+        return _logistic_loss(a * s + b, y) + 0.5 * l2 * a * a
+
     a, b = 1.0, 0.0
+    current = penalized(a, b)
     for _ in range(iterations):
         z = a * s + b
-        p = 1.0 / (1.0 + np.exp(-z))
-        w = p * (1 - p) + 1e-9
+        p = 1.0 / (1.0 + np.exp(-np.clip(z, -500, 500)))
+        w = p * (1 - p) + 1e-12
         grad_a = float(((p - y) * s).sum() + l2 * a)
         grad_b = float((p - y).sum())
         h_aa = float((w * s * s).sum() + l2)
@@ -85,10 +108,17 @@ def fit_platt(scores: np.ndarray, labels: np.ndarray, l2: float = 1e-3, iteratio
             break
         da = (h_bb * grad_a - h_ab * grad_b) / det
         db = (h_aa * grad_b - h_ab * grad_a) / det
-        a, b = a - da, b - db
-        if abs(da) < 1e-8 and abs(db) < 1e-8:
+        step = 1.0
+        improved = False
+        for _ in range(30):
+            candidate = penalized(a - step * da, b - step * db)
+            if candidate < current:
+                a, b, current, improved = a - step * da, b - step * db, candidate, True
+                break
+            step *= 0.5
+        if not improved or (abs(step * da) < 1e-9 and abs(step * db) < 1e-9):
             break
-    return float(a), float(b)
+    return float(a / scale), float(b)
 
 
 # --------------------------------------------------------------------------- metrics
