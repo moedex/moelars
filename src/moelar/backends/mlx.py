@@ -81,16 +81,23 @@ class MLXBackend(Backend):
         return np.asarray(hidden.astype(mx.float32))
 
     def label_rows(self, labels: list[str]) -> np.ndarray:
-        """Output-projection rows for the label tokens, shape (K, hidden_size). z = rows @ h."""
+        """Output-projection rows for the label tokens, shape (K, hidden_size). z = rows @ h.
+
+        Quantized models pack the projection weight; the selected rows are dequantized
+        with the layer's scales and biases so the result matches the full forward pass.
+        """
         mx = self._mx
         ids = [self._label_id(label) for label in labels]
         if any(i is None for i in ids):
             raise ValueError(f"labels not single-token for this tokenizer: {labels}")
-        if self.model.args.tie_word_embeddings:
-            weight = self.model.model.embed_tokens.weight
+        layer = self.model.model.embed_tokens if self.model.args.tie_word_embeddings else self.model.lm_head
+        index = mx.array(ids)
+        if hasattr(layer, "scales"):
+            rows = mx.dequantize(
+                layer.weight[index], layer.scales[index], layer.biases[index], layer.group_size, layer.bits
+            )
         else:
-            weight = self.model.lm_head.weight
-        rows = weight[mx.array(ids)]
+            rows = layer.weight[index]
         mx.eval(rows)
         return np.asarray(rows.astype(mx.float32))
 

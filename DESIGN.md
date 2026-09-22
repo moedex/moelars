@@ -217,9 +217,10 @@ opt-in for fixed schemas with a calibration set.
 2. **Hardware pass** (MLX done 2026-09-22, llama.cpp and vLLM pending): the MLX cache
    snapshot path worked first time on mlx-lm 0.31; prefix sharing brings a 24-row
    request to about a second on an M5 Max with a 4B model.
-3. **Numbers** (first table done, see `evals/RESULTS.md`): Tier A on Qwen3-4B-Instruct,
-   three jev-bench configs, raw and calibrated. Next: two more open models, all 22
-   configs, and Platt fitting for nouls.
+3. **Numbers** (all 22 configs done, see `evals/RESULTS.md`): Tier A on Qwen3-4B-Instruct
+   lands at 0.662 macro accuracy against Jev's 0.733 with better calibrated ECE (0.088
+   vs 0.113). Platt on nouls changed answers on five configs. Next: a 9B base model and
+   the Tier B head, which are the two accuracy levers.
 4. **Tier B**: training pipeline on Open-Jev plus tasksource-jev plus jev-bench train
    splits; publish weights and the eval table.
 5. **Extensions round two**: batched states, `not_stated`, cascade, replay cache.

@@ -84,7 +84,24 @@ uv run moelar eval      --backend mlx --model <model> --calibration calibration/
 ```
 
 `eval` reports accuracy, expected calibration error, Brier score, and the coverage you
-can automate at a 5% error budget. The JSONL format is in `evals/README.md`.
+can automate at a 5% error budget. The JSONL format is in `evals/README.md`. Nouls get
+a Platt fit on the raw yes-minus-no logit, which can move a biased model's decision
+boundary; choice and score get a temperature.
+
+## Train a decision head (Tier B)
+
+The backbone stays frozen. A small zero-initialized pointer head learns a residual on
+the model's own label logits from cached features, in seconds, and serves through the
+same engine:
+
+```bash
+uv run python -m moelar.train.build   --out data/train
+uv run python -m moelar.train.extract --model <model> --records data/train/*.train.jsonl --out data/features
+uv run python -m moelar.train.residual --train data/features/train.npz --heldout data/features/heldout.npz
+uv run moelar serve --backend mlx --model <model> --head checkpoints/pointer_head.npz --projection data/features/projection.npy
+```
+
+Details and the data policy are in `src/moelar/train/README.md`.
 
 ## Layout
 

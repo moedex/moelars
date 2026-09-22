@@ -27,7 +27,6 @@ from moelar.backends.mlx import MLXBackend
 from moelar.labels import assign_labels
 from moelar.render import compose_prompt, render_choice, render_content, render_noul, render_score
 from moelar.schema import ChoiceQuestion, NoulQuestion, ScoreQuestion
-from moelar.spans import char_offsets_to_token_indexes, option_end_char_offsets
 from moelar.train.data import Record
 
 
@@ -56,11 +55,6 @@ def _render(record: Record, labels: list[str], order: list[int]) -> tuple[str, t
     return render_score(ScoreQuestion(**question), labels)
 
 
-def _option_end_token_indexes(prefix: str, suffix: str, offsets: list[tuple[int, int]], count: int) -> list[int]:
-    """Token index of the last token of each option line, in presentation order."""
-    return char_offsets_to_token_indexes(offsets, option_end_char_offsets(prefix, suffix, count))
-
-
 def extract(
     backend: MLXBackend,
     records: Iterable[Record],
@@ -80,26 +74,23 @@ def extract(
                 rng.shuffle(order)
                 orders.append(order)
         state_text = render_content(record.state)
+        suffixes: list[str] = []
+        prefix = ""
         for order in orders:
             body, _keys = _render(record, labels, order)
             prefix, suffix = compose_prompt(template, state_text, body)
-            text = prefix + suffix
-            hidden = backend.hidden_states(text)
-            offsets = backend.token_offsets(text)
-            if len(offsets) != hidden.shape[0]:
-                offsets = offsets[: hidden.shape[0]]
-            option_idx = _option_end_token_indexes(prefix, suffix, offsets, k)
-            h_ans = hidden[-1]
-            rows = backend.label_rows(labels[:k])
-            z = rows @ h_ans
+            suffixes.append(suffix)
+        # Same code path as serving, with the prefix prefilled once for all presentations.
+        features = backend.label_logits_with_features(prefix, suffixes, [tuple(labels[:k])] * len(orders))
+        for order, (z, h_ans, h_opt) in zip(orders, features, strict=True):
             target = np.asarray([record.target[i] for i in order], dtype=np.float32)
             yield Presentation(
                 record_id=record.id,
                 kind=record.kind,
                 perm=order,
                 h_ans=(h_ans @ proj).astype(np.float16),
-                h_opt=(hidden[option_idx] @ proj).astype(np.float16),
-                z=z.astype(np.float32),
+                h_opt=(h_opt @ proj).astype(np.float16),
+                z=np.asarray(z, dtype=np.float32),
                 target=target,
             )
 

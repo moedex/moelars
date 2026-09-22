@@ -1,0 +1,10 @@
+{
+  "temperatures": {
+    "noul": 1.0,
+    "choice": 7.312949992494492,
+    "score": 1.0,
+    "multi": 1.0
+  },
+  "platt": {},
+  "fitted_on": "jev-bench/mnli/validation[:200]"
+}

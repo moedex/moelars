@@ -1,48 +1,79 @@
 # Results
 
 All MoeLAR numbers are measured in this repository. Jev numbers are quoted from the
-jev-bench maintainers' published run of `jev-1.13.0` on the full test splits. See
-`DESIGN.md` section 8 for why we never call that API ourselves.
+jev-bench maintainers' published run of `jev-1.13.0` on the full test splits, recorded
+in `evals/jev_published.json`. See `DESIGN.md` section 8 for why we never call that API.
 
-## 2026-09-22: Tier A, Qwen3-4B-Instruct-2507 4-bit on MLX
+## 2026-09-22: Tier A, all 22 jev-bench configs, Qwen3-4B-Instruct-2507 4-bit on MLX
 
-Hardware: Apple M5 Max, 64 GB. Backend: `mlx` with mlx-lm 0.31.3. 200 test rows per
-config, one question per request. Calibration is a single temperature per primitive
-fitted on 200 validation rows of the same config. Raw data: `evals/results/qwen3-4b-instruct-2507-4bit.json`.
+Hardware: Apple M5 Max, 64 GB. Backend `mlx`, mlx-lm 0.31.3. 200 test rows per config,
+one question per request. Calibration fitted on 200 validation rows of the same config:
+a temperature for choice and score, a Platt pair on the raw yes-minus-no logit for
+noul. chaosnli has no validation split and borrows mnli's calibrator. Total wall time
+for the suite was 30 minutes. Full table: `evals/results/qwen3-4b-instruct-2507-4bit.md`.
 
-| config | prim | K | MoeLAR raw acc | MoeLAR cal acc | raw ECE | cal ECE | raw Brier | cal Brier | fitted T | ms/row | Jev 1.13 acc (n=1000) | Jev ECE | Jev Brier |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| banking77 | choice | 77 | 0.665 | 0.665 | 0.306 | **0.101** | 0.638 | 0.509 | 4.88 | 213 | 0.796 | 0.095 | 0.317 |
-| boolq | noul | 2 | 0.890 | 0.890 | 0.115 | **0.046** | 0.222 | 0.187 | 7.54 | 108 | 0.917 | 0.021 | 0.061 |
-| sst5 | score | 5 | 0.475 | 0.475 | 0.471 | **0.090** | 0.985 | 0.635 | 8.25 | 85 | 0.565 | 0.190 | 0.618 |
+### Macro averages, calibrated
 
-Coverage at a 5% error budget (the fraction of decisions a confidence gate could accept
-automatically): banking77 0.03, boolq 0.56, sst5 0.03. Jev's published selective accuracy
-at 90% coverage on the same configs is 0.839, 0.953, and 0.586.
+| scope | n | MoeLAR acc | Jev acc | MoeLAR ECE | Jev ECE | MoeLAR Brier | Jev Brier |
+|---|---|---|---|---|---|---|---|
+| all | 22 | 0.662 | 0.733 | **0.088** | 0.113 | 0.404 | 0.349 |
+| choice | 9 | 0.657 | 0.770 | **0.084** | 0.112 | 0.386 | 0.345 |
+| score | 6 | 0.466 | 0.503 | **0.116** | 0.197 | **0.645** | 0.662 |
+| noul | 7 | 0.837 | 0.881 | 0.069 | 0.043 | 0.222 | 0.085 |
 
-## Reading
+### Where MoeLAR is ahead
 
-- **Temperature scaling does not change a single answer and cuts ECE by 3x to 5x.** The
-  fitted temperatures of 5 to 8 say how badly overconfident raw instruct-model logits
-  are. Calibrated ECE lands at or below Jev's on every config, which was the design bet.
-- **Accuracy trails Jev by 3 to 13 points zero-shot**, worst on the 77-way task. This is
-  the base model and the prompt, not the pipeline. The jev-bench maintainers' own
-  zero-shot Qwen3.5-4B scores 0.662 macro accuracy against Jev's 0.733, and their
-  LoRA-plus-residual-head version of the same model reaches 0.747. That is the Tier B
-  target.
-- **Brier stays worse than Jev's after calibration** on banking77 and boolq. A single
-  temperature cannot fix a model that is wrong with high margin. A Platt bias for nouls
-  and per-config temperatures are the next cheap steps; a trained head is the real one.
-- **Coverage at 5% error is unusable on banking77 and sst5** because the accuracy floor
-  is too low for any threshold to carve out a clean 95% region. Do not put this model
-  behind an auto-approve gate on a 77-way task.
-- **Latency** is 85 to 213 ms per row including the prefix prefill. Rows sharing a state
-  cost far less: a 24-row request with permutations and ablations took about one second.
+| config | MoeLAR acc | Jev acc | note |
+|---|---|---|---|
+| chaosnli | 0.685 | 0.615 | scored against 100-annotator vote shares; Brier 0.165 vs 0.583 |
+| helpsteer2_verbosity | 0.585 | 0.341 | Brier 0.619 vs 0.793 |
+| civil_comments | 0.930 | 0.729 | see caveat below |
 
-## Caveats
+### Where the gap is largest
 
-- 200 rows per split, not the full 1000. Expect a few points of noise.
+| config | MoeLAR acc | Jev acc | why |
+|---|---|---|---|
+| mmlu | 0.670 | 0.923 | world knowledge, set by the 4B base model |
+| strategyqa_closed | 0.570 | 0.785 | closed-book multi-hop, same cause |
+| clinc150 (K=151) | 0.725 | 0.893 | high-cardinality routing |
+| mnli | 0.725 | 0.883 | |
+| banking77 (K=77) | 0.665 | 0.796 | high-cardinality routing |
+
+### Reading
+
+- **Calibration is largely solved by fitting.** Calibrated ECE beats Jev's macro on every
+  primitive except noul, and on the score primitive the calibrated Brier is also ahead.
+  Fitted temperatures ran from 4 to 8, which is how overconfident raw instruct logits are.
+  Temperature never changes an answer.
+- **Platt on nouls changes answers, and it matters.** fever_evidence +1.0, sms_spam
+  +4.0, strategyqa_closed +2.0, strategyqa_grounded +2.5 points, and civil_comments
+  from 0.510 to 0.930. Temperature alone cannot move a decision across 0.5. This is the
+  case the Laya benchmark documented and the reason the Platt path exists.
+- **Accuracy is the whole problem, and it is the base model.** The macro accuracy of
+  0.662 happens to equal the jev-bench maintainers' own zero-shot Qwen3.5-4B figure.
+  Their LoRA plus residual head on the same 4B reaches 0.747, above Jev. Their
+  zero-shot Qwen3.5-9B alone reaches 0.689. The gap scales with option count and with
+  how much world knowledge the question needs.
+- **Coverage at a 5% error budget** is the operator number. It ranges from 0.96 on
+  civil_comments and 0.94 on fever_evidence down to zero on stsb. Do not put a 4B
+  zero-shot model behind an auto-approve gate on high-K routing yet.
+
+### Caveats
+
+- 200 rows per split against Jev's 1000. Expect a few points of noise per config; the
+  macro over 22 configs is more stable.
+- **civil_comments**: 93% of the test rows are "not toxic". The calibrated 0.930 equals
+  the majority baseline. The fitted Platt bias is -3.75, which says the raw model called
+  nearly everything toxic and calibration pushed it back to the base rate. Jev's 0.729
+  is below the majority baseline, so neither number says much about toxicity detection.
+  Read this config through its Brier and coverage columns instead.
+- **Brier definitions may differ for noul.** MoeLAR sums squared error over both
+  outcomes, which is twice the single-probability Brier. If jev-bench reports the
+  single-probability form for noul, halve the MoeLAR noul Brier for comparison
+  (0.222 becomes 0.111 against Jev's 0.085). Choice and score sums are standard.
 - Older Qwen3 (2507) rather than Qwen3.5, because that is what mlx-community had
-  quantized. Numbers are not directly comparable to the Qwen3.5 rows on jev-bench.
-- jev-bench notes that Jev's API rounds probabilities to 0.01, which inflates its NLL.
-  Brier and ECE are the fair comparison columns, and those are what this table shows.
+  quantized on the day.
+
+## 2026-09-22 (earlier): first three configs
+
+Superseded by the full table above; kept in git history.
