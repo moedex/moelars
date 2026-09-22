@@ -3,7 +3,7 @@ name = "moelar"
 version = "0.0.1"
 description = "Moe Limited but Accurate Response: a local-models-only typed-decision API in the shape of System One"
 readme = "README.md"
-license = "Apache-2.0"
+license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Zak Keown" }]
 keywords = ["system-one", "typed-decisions", "calibration", "classification", "local-llm"]
