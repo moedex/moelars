@@ -9,6 +9,7 @@ fails on a given cache type, the backend falls back to a full prefill per row.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,10 @@ class MLXBackend(Backend):
 
         self._mx = mx
         self._make_cache = make_prompt_cache
+        # MLX keeps freed buffers for reuse, up to the memory limit by default. Every request has a different
+        # prompt length, so those buffers rarely match and the cache grows until the OS kills the server
+        # (about 100 GB after roughly 100 requests on a 128 GB machine, with 2.2 GB actually in use).
+        mx.set_cache_limit(int(float(os.environ.get("MOELARS_MLX_CACHE_GB", "4")) * 2**30))
         # A LoRA adapter from `moelars.train.lora` loads through mlx-lm's own adapter path.
         self.model, self.tokenizer = load(model_path, adapter_path=adapter)
         # Vision-language checkpoints (Qwen3.5) wrap the text stack in `language_model`;

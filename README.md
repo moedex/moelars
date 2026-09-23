@@ -52,6 +52,8 @@ uv sync --extra dev --extra mlx
 uv run moelars serve --backend mlx --model mlx-community/Qwen3.5-4B-Instruct-4bit
 ```
 
+The MLX backend caps MLX's buffer cache at 4 GB (`MOELARS_MLX_CACHE_GB` changes it). Uncapped, varied prompt lengths grew it to about 100 GB within a few hundred requests.
+
 Or any GGUF model anywhere:
 
 ```bash
