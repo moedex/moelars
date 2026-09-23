@@ -23,11 +23,11 @@ from pathlib import Path
 
 import numpy as np
 
-from moelar.backends.mlx import MLXBackend
-from moelar.labels import assign_labels
-from moelar.render import compose_prompt, render_choice, render_content, render_noul, render_score
-from moelar.schema import ChoiceQuestion, NoulQuestion, ScoreQuestion
-from moelar.train.data import Record
+from moelars.backends.mlx import MLXBackend
+from moelars.labels import assign_labels
+from moelars.render import compose_prompt, render_choice, render_content, render_noul, render_score
+from moelars.schema import ChoiceQuestion, NoulQuestion, ScoreQuestion
+from moelars.train.data import Record
 
 
 @dataclass

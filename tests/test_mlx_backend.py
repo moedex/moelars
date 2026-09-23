@@ -7,7 +7,7 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-from moelar.backends.mlx import MLXBackend  # noqa: E402
+from moelars.backends.mlx import MLXBackend  # noqa: E402
 
 
 class _Tokenizer:

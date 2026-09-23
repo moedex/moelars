@@ -1,8 +1,8 @@
 """Wire schema.
 
 Request and response models match the System One HTTP API (`POST /v1/systemone`,
-`GET /v1/models`) field for field, so the official client SDKs parse MoeLAR
-responses unchanged. MoeLAR extensions live under the `moelar` request key and as
+`GET /v1/models`) field for field, so the official client SDKs parse moe-LARS
+responses unchanged. moe-LARS extensions live under the `moelars` request key and as
 optional extra answer fields, which the SDKs ignore.
 """
 
@@ -74,7 +74,7 @@ class ScoreQuestion(_Strict):
 
 
 class MultiQuestion(_Strict):
-    """MoeLAR extension: independent P(applies) per option."""
+    """moe-LARS extension: independent P(applies) per option."""
 
     type: Literal["multi"]
     instructions: JSONContent = None
@@ -110,8 +110,8 @@ class Constraint(_Strict):
     questions: list[str] = Field(min_length=2)
 
 
-class MoelarOptions(_Strict):
-    """Per-request MoeLAR extensions. All default off, so plain System One requests are unchanged."""
+class MoelarsOptions(_Strict):
+    """Per-request moe-LARS extensions. All default off, so plain System One requests are unchanged."""
 
     permutations: int = Field(0, ge=0, le=16, description="Extra option orderings averaged for choice answers")
     explain: bool = Field(False, description="Return evidence spans by leave-one-out ablation of the state")
@@ -125,13 +125,13 @@ class SystemOneRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     state: JSONContent
-    model: str = "moelar-latest"
+    model: str = "moelars-latest"
     questions: dict[str, Question] = Field(min_length=1)
-    moelar: MoelarOptions = Field(default_factory=MoelarOptions)
+    moelars: MoelarsOptions = Field(default_factory=MoelarsOptions)
 
     @model_validator(mode="after")
     def _constraints_reference_nouls(self) -> SystemOneRequest:
-        for constraint in self.moelar.constraints:
+        for constraint in self.moelars.constraints:
             for qid in constraint.questions:
                 if qid not in self.questions:
                     raise ValueError(f"constraint references unknown question {qid!r}")

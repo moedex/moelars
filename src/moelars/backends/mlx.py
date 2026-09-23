@@ -3,7 +3,7 @@
 Prefills the shared prefix once into a KV cache, snapshots it, and for each suffix
 restores the snapshot and runs the suffix to read the last-position logits.
 
-Requires `pip install moelar[mlx]`. Untested paths are guarded: if snapshot or restore
+Requires `pip install moelars[mlx]`. Untested paths are guarded: if snapshot or restore
 fails on a given cache type, the backend falls back to a full prefill per row.
 """
 
@@ -14,9 +14,9 @@ from typing import Any
 
 import numpy as np
 
-from moelar.backends.base import Backend
-from moelar.render import TEMPLATES, TemplateFn
-from moelar.spans import char_offsets_to_token_indexes, option_end_char_offsets
+from moelars.backends.base import Backend
+from moelars.render import TEMPLATES, TemplateFn
+from moelars.spans import char_offsets_to_token_indexes, option_end_char_offsets
 
 
 class MLXBackend(Backend):
@@ -28,11 +28,11 @@ class MLXBackend(Backend):
             from mlx_lm import load
             from mlx_lm.models.cache import make_prompt_cache
         except ImportError as error:  # pragma: no cover - depends on platform
-            raise ImportError("install with `pip install moelar[mlx]` on Apple Silicon") from error
+            raise ImportError("install with `pip install moelars[mlx]` on Apple Silicon") from error
 
         self._mx = mx
         self._make_cache = make_prompt_cache
-        # A LoRA adapter from `moelar.train.lora` loads through mlx-lm's own adapter path.
+        # A LoRA adapter from `moelars.train.lora` loads through mlx-lm's own adapter path.
         self.model, self.tokenizer = load(model_path, adapter_path=adapter)
         # Vision-language checkpoints (Qwen3.5) wrap the text stack in `language_model`;
         # everything that touches the transformer body or the output projection goes there.

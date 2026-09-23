@@ -1,6 +1,6 @@
 """Extract pointer-head feature shards with the MLX backend.
 
-    uv run python -m moelar.train.extract \
+    uv run python -m moelars.train.extract \
         --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
         --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl \
         --limit 3000 --holdout-fraction 0.2 --out data/features
@@ -20,10 +20,10 @@ from pathlib import Path
 
 import numpy as np
 
-from moelar.backends.mlx import MLXBackend
-from moelar.evalset import read_examples
-from moelar.train.data import Record, from_jev_bench, read_records, split_by_group
-from moelar.train.features import extract, projection, write_shard
+from moelars.backends.mlx import MLXBackend
+from moelars.evalset import read_examples
+from moelars.train.data import Record, from_jev_bench, read_records, split_by_group
+from moelars.train.features import extract, projection, write_shard
 
 
 def _records_from_eval_jsonl(paths: list[str]) -> list[Record]:
@@ -42,7 +42,7 @@ def _records_from_eval_jsonl(paths: list[str]) -> list[Record]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
-    parser.add_argument("--adapter", default=None, help="LoRA adapter directory from moelar.train.lora")
+    parser.add_argument("--adapter", default=None, help="LoRA adapter directory from moelars.train.lora")
     parser.add_argument("--records", nargs="+", required=True)
     parser.add_argument("--test-records", nargs="*", default=[])
     parser.add_argument("--limit", type=int, default=3000, help="records sampled across --records")

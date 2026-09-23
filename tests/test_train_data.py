@@ -1,6 +1,6 @@
 import json
 
-from moelar.train.data import (
+from moelars.train.data import (
     Record,
     from_jev_bench,
     from_open_jev,

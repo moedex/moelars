@@ -12,8 +12,8 @@ import re
 
 import numpy as np
 
-from moelar.backends.base import Backend
-from moelar.render import TemplateFn, template_plain
+from moelars.backends.base import Backend
+from moelars.render import TemplateFn, template_plain
 
 _OPTION_LINE = re.compile(r"^([A-Z]{1,2})\) (.+)$", re.MULTILINE)
 _STATE_BLOCK = re.compile(r"<STATE [0-9a-f]+>\n(.*)\n</STATE [0-9a-f]+>", re.DOTALL)
@@ -26,7 +26,7 @@ def _hash_unit(*parts: str) -> float:
 
 class MockBackend(Backend):
     name = "mock"
-    model_name = "moelar-mock"
+    model_name = "moelars-mock"
 
     def __init__(self, keyword_bonus: float = 3.0, noise: float = 2.0) -> None:
         self.keyword_bonus = keyword_bonus

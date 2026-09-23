@@ -1,6 +1,6 @@
 """Calibration.
 
-Raw label logits from a language model are not calibrated. MoeLAR fits, on the
+Raw label logits from a language model are not calibrated. moe-LARS fits, on the
 user's own labeled data:
 
 - a temperature per primitive kind (noul, choice, score, multi), which reshapes
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from moelar.primitives import softmax
+from moelars.primitives import softmax
 
 KINDS = ("noul", "choice", "score", "multi")
 

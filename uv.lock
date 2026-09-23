@@ -871,7 +871,7 @@ wheels = [
 ]
 
 [[package]]
-name = "moelar"
+name = "moelars"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

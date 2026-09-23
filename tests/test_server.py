@@ -1,12 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from moelar.backends.mock import MockBackend
-from moelar.engine import Engine
-from moelar.server import create_app
+from moelars.backends.mock import MockBackend
+from moelars.engine import Engine
+from moelars.server import create_app
 
 BODY = {
-    "model": "moelar-latest",
+    "model": "moelars-latest",
     "state": "I was charged twice for my subscription.",
     "questions": {
         "refund": {"type": "noul", "instructions": "Is the customer asking for money back?"},
@@ -21,7 +21,7 @@ BODY = {
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.delenv("MOELAR_API_KEY", raising=False)
+    monkeypatch.delenv("MOELARS_API_KEY", raising=False)
     return TestClient(create_app(Engine(MockBackend())))
 
 
@@ -37,7 +37,7 @@ def test_systemone_wire_shape(client):
 
 
 def test_extensions_are_opt_in(client):
-    body = {**BODY, "moelar": {"permutations": 2, "abstain_margin": 0.1}}
+    body = {**BODY, "moelars": {"permutations": 2, "abstain_margin": 0.1}}
     data = client.post("/v1/systemone", json=body).json()
     assert "order_sensitivity" in data["answers"]["department"]
     assert "abstain" in data["answers"]["department"]
@@ -54,12 +54,12 @@ def test_validation_error_shape(client):
 def test_models_endpoint(client):
     data = client.get("/v1/models").json()
     names = [m["name"] for m in data["models"]]
-    assert "moelar-latest" in names
+    assert "moelars-latest" in names
     assert all({"name", "description", "release_date"} <= set(m) for m in data["models"])
 
 
 def test_auth_when_key_configured(monkeypatch):
-    monkeypatch.setenv("MOELAR_API_KEY", "secret")
+    monkeypatch.setenv("MOELARS_API_KEY", "secret")
     client = TestClient(create_app(Engine(MockBackend())))
     assert client.post("/v1/systemone", json=BODY).status_code == 401
     ok = client.post("/v1/systemone", json=BODY, headers={"Authorization": "Bearer secret"})

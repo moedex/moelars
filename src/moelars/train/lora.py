@@ -8,11 +8,11 @@ adapter is saved whenever held-out Brier improves: in-distribution gains are che
 generalization is what we are buying.
 
 Adapters are saved in mlx-lm's format (`adapters.safetensors` plus `adapter_config.json`),
-so `mlx_lm.load(model, adapter_path=...)` and `--adapter` on every MoeLAR entry point load
+so `mlx_lm.load(model, adapter_path=...)` and `--adapter` on every moe-LARS entry point load
 them. A pointer head for the adapted model is then trained on features extracted with
-`python -m moelar.train.extract --adapter ...`.
+`python -m moelars.train.extract --adapter ...`.
 
-    uv run python -m moelar.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
+    uv run python -m moelars.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
         --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl \
         data/train/tasksource-jev.train.jsonl --limit 20000 --out checkpoints/lora-4b
 """
@@ -30,10 +30,10 @@ from typing import Any
 
 import numpy as np
 
-from moelar.labels import assign_labels
-from moelar.render import compose_prompt, render_content
-from moelar.train.data import Record, read_records, split_by_group
-from moelar.train.features import _render
+from moelars.labels import assign_labels
+from moelars.render import compose_prompt, render_content
+from moelars.train.data import Record, read_records, split_by_group
+from moelars.train.features import _render
 
 
 @dataclass
@@ -146,7 +146,7 @@ def loss_fn(mx: Any, model: Any, ids, lengths, label_ids, kmask, target, brier_w
 
 
 def evaluate(mx: Any, model: Any, examples: list[Example], batch_tokens: int) -> dict[str, float]:
-    from moelar.calibration import ece
+    from moelars.calibration import ece
 
     hits, conf, brier = [], [], 0.0
     for batch in batches(examples, batch_tokens, rng=None):
@@ -164,13 +164,29 @@ def evaluate(mx: Any, model: Any, examples: list[Example], batch_tokens: int) ->
             "brier": brier / n}
 
 
-def add_lora(model: Any, num_layers: int, rank: int, scale: float, dropout: float) -> dict[str, Any]:
-    """Freeze the backbone and add LoRA to the last `num_layers` blocks (-1 for all). Returns the adapter config."""
+# Module paths inside a decoder block, for `--keys`. "all" leaves the choice to mlx-lm, which
+# adapts every linear layer in the block; on a mixture-of-experts model that includes the
+# router and every expert (hundreds of millions of parameters on Qwen3-30B-A3B at rank 8).
+KEY_PRESETS: dict[str, list[str] | None] = {
+    "all": None,
+    "attn": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"],
+    "attn+experts": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj",
+                     "mlp.switch_mlp.gate_proj", "mlp.switch_mlp.up_proj", "mlp.switch_mlp.down_proj"],
+}
+
+
+def add_lora(model: Any, num_layers: int, rank: int, scale: float, dropout: float,
+             keys: list[str] | None = None) -> dict[str, Any]:
+    """Freeze the backbone and add LoRA to the last `num_layers` blocks (-1 for all). Returns the adapter config.
+
+    `keys` restricts LoRA to those module paths within each block; None adapts every linear layer."""
     from mlx_lm.tuner.utils import linear_to_lora_layers
 
     total = len(model.layers)
     num_layers = total if num_layers < 0 else min(num_layers, total)
-    params = {"rank": rank, "scale": scale, "dropout": dropout}
+    params: dict[str, Any] = {"rank": rank, "scale": scale, "dropout": dropout}
+    if keys is not None:
+        params["keys"] = list(keys)  # mlx-lm's load_adapters reads them back from the config
     model.freeze()
     linear_to_lora_layers(model, num_layers, params)
     return {"fine_tune_type": "lora", "num_layers": num_layers, "lora_parameters": params}
@@ -203,6 +219,7 @@ def train(
     grad_checkpoint: bool = True,
     seed: int = 0,
     meta: dict[str, Any] | None = None,
+    keys: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     import mlx.core as mx
     import mlx.nn as nn
@@ -216,8 +233,8 @@ def train(
     # Labels come in a fixed canonical order, so the first K are the ones the engine uses for
     # a K-option question; only as many as the widest record are needed.
     labels = assign_labels(max(len(r.options) for r in [*train_records, *heldout_records]), backend.is_single_token)
-    config = add_lora(model, num_layers, rank, scale, dropout)
-    config["moelar"] = {**(meta or {}), "lr": lr, "epochs": epochs, "brier_weight": brier_weight,
+    config = add_lora(model, num_layers, rank, scale, dropout, keys)
+    config["moelars"] = {**(meta or {}), "lr": lr, "epochs": epochs, "brier_weight": brier_weight,
                         "batch_tokens": batch_tokens, "max_tokens": max_tokens, "seed": seed}
     if grad_checkpoint:
         # Recompute each block's activations in the backward pass instead of keeping them;
@@ -316,6 +333,8 @@ def main() -> int:
     parser.add_argument("--eval-every", type=int, default=500, help="steps between held-out evaluations")
     parser.add_argument("--no-grad-checkpoint", action="store_true", help="keep activations; faster, more memory")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--keys", choices=sorted(KEY_PRESETS), default="all",
+                        help="which layers in each block get LoRA; 'attn' or 'attn+experts' for MoE models")
     parser.add_argument("--out", default="checkpoints/lora")
     args = parser.parse_args()
 
@@ -324,7 +343,7 @@ def main() -> int:
     for path in args.records:
         records.extend(read_records(path))
     records = [r for r in records if len(r.options) <= args.max_options]
-    # Same sampling and split as `moelar.train.extract` with the same seed, so the adapter
+    # Same sampling and split as `moelars.train.extract` with the same seed, so the adapter
     # and a head trained after it hold out the same sources.
     rng.shuffle(records)
     records = records[: args.limit]
@@ -332,14 +351,14 @@ def main() -> int:
     print(f"records: {len(records)} -> train {len(train_records)} / heldout {len(heldout_records)} "
           f"(held-out sources: {sorted({r.source for r in heldout_records})[:8]}...)", flush=True)
 
-    from moelar.backends.mlx import MLXBackend
+    from moelars.backends.mlx import MLXBackend
 
     backend = MLXBackend(args.model)
     train(backend, train_records, heldout_records, args.out, epochs=args.epochs, lr=args.lr, rank=args.rank,
           scale=args.scale, dropout=args.dropout, num_layers=args.num_layers, brier_weight=args.brier_weight,
           batch_tokens=args.batch_tokens, max_tokens=args.max_tokens, eval_every=args.eval_every,
-          grad_checkpoint=not args.no_grad_checkpoint, seed=args.seed,
-          meta={"model": args.model, "records": args.records, "limit": args.limit,
+          grad_checkpoint=not args.no_grad_checkpoint, seed=args.seed, keys=KEY_PRESETS[args.keys],
+          meta={"model": args.model, "keys": args.keys, "records": args.records, "limit": args.limit,
                 "holdout_fraction": args.holdout_fraction,
                 "heldout_sources": sorted({r.source for r in heldout_records})})
     return 0

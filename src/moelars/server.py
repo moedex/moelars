@@ -4,9 +4,9 @@
 - GET  /v1/models
 - GET  /healthz
 
-Errors use the `{message, error_type}` shape. When MOELAR_API_KEY is set, requests
+Errors use the `{message, error_type}` shape. When MOELARS_API_KEY is set, requests
 must carry `Authorization: Bearer <key>`. The response carries both
-`x-moelar-request-id` and `x-typesafe-request-id`, since the client SDKs read the
+`x-moelars-request-id` and `x-typesafe-request-id`, since the client SDKs read the
 latter for their `request_id` property.
 """
 
@@ -19,8 +19,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from moelar.engine import Engine
-from moelar.schema import ErrorBody, ListModelsResponse, SystemOneRequest
+from moelars.engine import Engine
+from moelars.schema import ErrorBody, ListModelsResponse, SystemOneRequest
 
 
 def _error(status: int, message: str, error_type: str) -> JSONResponse:
@@ -36,21 +36,21 @@ def _format_validation(error: RequestValidationError) -> str:
 
 
 def create_app(engine: Engine) -> FastAPI:
-    app = FastAPI(title="MoeLAR", version=engine.version, docs_url="/docs")
+    app = FastAPI(title="moe-LARS", version=engine.version, docs_url="/docs")
     app.state.engine = engine
 
     @app.middleware("http")
     async def request_id_and_auth(request: Request, call_next):
         request_id = str(uuid.uuid4())
-        expected = os.environ.get("MOELAR_API_KEY")
+        expected = os.environ.get("MOELARS_API_KEY")
         if expected and request.url.path.startswith("/v1/"):
             header = request.headers.get("authorization", "")
             if header != f"Bearer {expected}":
                 response = _error(401, "Missing or invalid API key", "authentication_error")
-                response.headers["x-moelar-request-id"] = request_id
+                response.headers["x-moelars-request-id"] = request_id
                 return response
         response = await call_next(request)
-        response.headers["x-moelar-request-id"] = request_id
+        response.headers["x-moelars-request-id"] = request_id
         response.headers["x-typesafe-request-id"] = request_id
         return response
 

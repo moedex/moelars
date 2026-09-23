@@ -3,15 +3,15 @@
 Prefills the prefix, saves the llama state, and for each suffix restores it before
 evaluating the suffix tokens and reading the last logits row.
 
-Requires `pip install moelar[llamacpp]`.
+Requires `pip install moelars[llamacpp]`.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from moelar.backends.base import Backend
-from moelar.render import TEMPLATES, TemplateFn
+from moelars.backends.base import Backend
+from moelars.render import TEMPLATES, TemplateFn
 
 
 class LlamaCppBackend(Backend):
@@ -21,7 +21,7 @@ class LlamaCppBackend(Backend):
         try:
             from llama_cpp import Llama
         except ImportError as error:  # pragma: no cover
-            raise ImportError("install with `pip install moelar[llamacpp]`") from error
+            raise ImportError("install with `pip install moelars[llamacpp]`") from error
         if template not in TEMPLATES:
             raise ValueError(f"unknown template {template!r}; choose from {sorted(TEMPLATES)}")
         self.llm = Llama(model_path=model_path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, logits_all=False, verbose=False)

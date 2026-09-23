@@ -17,10 +17,10 @@ from typing import Any
 
 import numpy as np
 
-from moelar.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
-from moelar.engine import Engine
-from moelar.primitives import softmax
-from moelar.schema import SystemOneRequest
+from moelars.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
+from moelars.engine import Engine
+from moelars.primitives import softmax
+from moelars.schema import SystemOneRequest
 
 
 @dataclass

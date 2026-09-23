@@ -7,7 +7,7 @@ Everything here is plain numpy over small vectors. Formulas:
 - score: expected level index, sum(i * p_i); may fall between levels
 - score confidence: 1 - 2 * E|i - score| / (K - 1), one minus the normalized spread
   around the expected level. System One's score confidence formula is unpublished, so
-  this is MoeLAR's own definition. It is 1.0 for a one-hot distribution and rewards
+  this is moe-LARS's own definition. It is 1.0 for a one-hot distribution and rewards
   mass on adjacent levels more than mass on distant ones.
 - order sensitivity: mean total variation distance of each ordering's distribution
   from their mean

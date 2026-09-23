@@ -1,11 +1,11 @@
 # Handoff, 2026-09-22 evening
 
 Everything below is committed. Nothing of ours is running.
-`origin` is `git@github.com:moedex/moelar.git`.
+`origin` is `git@github.com:moedex/moelars.git`.
 
 ## State in one paragraph
 
-MoeLAR serves the System One wire shape from a local model with no text generation. On
+moe-LARS serves the System One wire shape from a local model with no text generation. On
 jev-bench (22 configs, 200 test rows each, per-config calibration on every side),
 Qwen3-4B-Instruct with a LoRA adapter trained through the label readout reaches **0.731**
 macro accuracy against Jev's published 0.733, with better Brier (0.317 against 0.349)
@@ -20,7 +20,7 @@ held-out forms are flat except stsb, which the adapter breaks. Qwen3-30B-A3B zer
   check; LoRA on the full corpus (113 minutes, about 27 GB peak); suite with the adapter
   (0.731); features and head on the adapted model (the head adds nothing, 0.729); 30B-A3B
   Tier A suite (0.680).
-- `moelar.train.residual` now keeps the untrained head (the backbone exactly) as the
+- `moelars.train.residual` now keeps the untrained head (the backbone exactly) as the
   checkpoint to beat. Before, it always saved some epoch, even one worse than no head.
 - `evals/run_suite.py --dump-rows` writes calibrated per-row probabilities for test and
   validation; `evals/cascade.py` simulates an `escalate_to` cascade from two such dumps,
@@ -40,7 +40,7 @@ held-out forms are flat except stsb, which the adapter breaks. Qwen3-30B-A3B zer
    30B-A3B suites with `--dump-rows --tag rows` (about an hour and 1.5 hours with the
    extra validation pass), then `evals/cascade.py <4B rows dir> <30B rows dir>`.
 2. **stsb under LoRA** (0.395 to 0.235): ordinal-aware loss for score tasks, more score
-   sources in `moelar.train.build`, or a gentler adapter. Must be understood before LoRA
+   sources in `moelars.train.build`, or a gentler adapter. Must be understood before LoRA
    is the default.
 3. Molar Triage numbers (`scripts/queue_30b.sh` has the loop; the `<!-- MOLAR_NUMBERS -->`
    placeholder in `examples/molar_triage/README.md`) and `scripts/load_cost.py` for 4B,
@@ -59,7 +59,7 @@ held-out forms are flat except stsb, which the adapter breaks. Qwen3-30B-A3B zer
 - chaosnli borrows mnli's calibrator (no validation split); under LoRA it fell 4.5 points,
   possibly from the borrowed temperature.
 - civil_comments' calibrated 0.930 is the majority baseline and is worth about 1.8 macro
-  points wherever MoeLAR leads; the headline flatters us by about that much.
+  points wherever moe-LARS leads; the headline flatters us by about that much.
 - The 30B scores 0.110 on helpsteer2_verbosity (all mass on one end of the scale);
   calibration cannot fix an argmax. Not investigated.
 - Data policy is unchanged: no Jev-labeled data, no calls to the hosted API, Jev numbers
@@ -70,7 +70,5 @@ held-out forms are flat except stsb, which the adapter breaks. Qwen3-30B-A3B zer
 - Gate the pointer head on K: on LoRA it helps high-K routing and hurts elsewhere. Read
   off test, so check on held-out data first.
 - Shortlist-then-rerank for high-K configs (banking77, clinc150, massive, ledgar).
-- Complement-consistency loss needs negated noul pairs generated in `moelar.train.build`.
+- Complement-consistency loss needs negated noul pairs generated in `moelars.train.build`.
 - llama.cpp backend still needs a hardware pass.
-- Rename to moe-LARS (`moelars` in code), agreed with the user but deferred until they
-  say go; the spec is in the assistant's project memory.

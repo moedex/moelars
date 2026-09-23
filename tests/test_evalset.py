@@ -2,11 +2,11 @@ import json
 
 import numpy as np
 
-from moelar.backends.mock import MockBackend
-from moelar.calibration import Calibrator
-from moelar.engine import Engine
-from moelar.evalset import calibrate, evaluate, read_examples
-from moelar.schema import SystemOneRequest
+from moelars.backends.mock import MockBackend
+from moelars.calibration import Calibrator
+from moelars.engine import Engine
+from moelars.evalset import calibrate, evaluate, read_examples
+from moelars.schema import SystemOneRequest
 
 
 def _write(tmp_path, rows):

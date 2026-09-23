@@ -1,8 +1,8 @@
 """Build the Tier B training corpus from the clean public sources.
 
-    uv run python -m moelar.train.build --out data/train --max-per-source 20000
+    uv run python -m moelars.train.build --out data/train --max-per-source 20000
 
-Writes one JSONL per source plus `manifest.json`. Requires `pip install moelar[evals]`.
+Writes one JSONL per source plus `manifest.json`. Requires `pip install moelars[evals]`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from moelar.train.data import from_jev_bench, from_open_jev, from_tasksource_jev, write_records
+from moelars.train.data import from_jev_bench, from_open_jev, from_tasksource_jev, write_records
 
 JEV_BENCH_CONFIGS = [
     "banking77", "boolq", "sst5", "clinc150", "massive", "ledgar", "go_emotions", "mmlu", "arc_challenge",

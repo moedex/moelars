@@ -12,9 +12,9 @@ from mlx.utils import tree_flatten  # noqa: E402
 from mlx_lm.models import qwen3  # noqa: E402
 from mlx_lm.tuner.utils import load_adapters  # noqa: E402
 
-from moelar.render import TEMPLATES  # noqa: E402
-from moelar.train import lora  # noqa: E402
-from moelar.train.data import Record  # noqa: E402
+from moelars.render import TEMPLATES  # noqa: E402
+from moelars.train import lora  # noqa: E402
+from moelars.train.data import Record  # noqa: E402
 
 VOCAB = 97
 
@@ -142,3 +142,18 @@ def test_saved_adapter_loads_with_mlx_lm(tmp_path):
 
     fresh = load_adapters(_tiny(seed=1), str(tmp_path / "adapter"))
     assert np.allclose(np.asarray(lora.readout(mx, fresh, *batch)), trained, atol=1e-4)
+
+
+def test_keys_restrict_lora_to_attention_and_reload_the_same_way(tmp_path):
+    backend = _Backend(_tiny(seed=2))
+    lora.train(backend, _records() * 2, _records(), tmp_path / "adapter", epochs=1, lr=3e-3, rank=4, scale=2.0,
+               eval_every=0, grad_checkpoint=False, keys=lora.KEY_PRESETS["attn"])
+    adapted = {k.split(".lora_")[0] for k, _ in tree_flatten(backend.model.trainable_parameters())}
+    assert adapted and all(".self_attn." in k for k in adapted), adapted
+    assert len(adapted) == 2 * 4  # two blocks, four attention projections
+
+    examples, _ = lora.presentations(backend, _records(), ["A", "B", "C"], rng=None, max_tokens=2048)
+    batch = lora.collate(mx, examples)[:4]
+    fresh = load_adapters(_tiny(seed=2), str(tmp_path / "adapter"))
+    assert np.allclose(np.asarray(lora.readout(mx, fresh, *batch)),
+                       np.asarray(lora.readout(mx, backend.model, *batch)), atol=1e-4)
