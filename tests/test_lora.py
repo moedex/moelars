@@ -157,3 +157,36 @@ def test_keys_restrict_lora_to_attention_and_reload_the_same_way(tmp_path):
     fresh = load_adapters(_tiny(seed=2), str(tmp_path / "adapter"))
     assert np.allclose(np.asarray(lora.readout(mx, fresh, *batch)),
                        np.asarray(lora.readout(mx, backend.model, *batch)), atol=1e-4)
+
+
+def _tiny_moe(seed: int = 0):
+    from mlx_lm.models import qwen3_moe
+
+    mx.random.seed(seed)
+    args = qwen3_moe.ModelArgs(model_type="qwen3_moe", hidden_size=32, num_hidden_layers=2, intermediate_size=64,
+                               num_attention_heads=4, num_experts=8, num_experts_per_tok=2, decoder_sparse_step=1,
+                               mlp_only_layers=[], moe_intermediate_size=16, rms_norm_eps=1e-6, vocab_size=VOCAB,
+                               num_key_value_heads=2, head_dim=8, rope_theta=10000.0, tie_word_embeddings=False,
+                               max_position_embeddings=512, norm_topk_prob=True)
+    model = qwen3_moe.Model(args)
+    mx.eval(model.parameters())
+    return model
+
+
+@pytest.mark.parametrize("keys", ["attn", "attn+experts"])
+def test_lora_trains_through_a_mixture_of_experts_block(tmp_path, keys):
+    """Qwen3-MoE routes by argpartition; without a stop_gradient on the indices the first backward pass fails."""
+    model = _tiny_moe()
+    examples, _ = lora.presentations(_Backend(model), _records(), ["A", "B", "C"], rng=None, max_tokens=2048)
+    batch = lora.collate(mx, examples)[:4]
+    before = np.asarray(lora.readout(mx, model, *batch))
+    lora.stop_router_index_gradients()
+    assert np.allclose(np.asarray(lora.readout(mx, model, *batch)), before, atol=1e-5)  # same forward pass
+
+    backend = _Backend(model)
+    history = lora.train(backend, _records() * 4, _records(), tmp_path / "adapter", epochs=2, lr=3e-3, rank=4,
+                         scale=2.0, eval_every=0, grad_checkpoint=True, keys=lora.KEY_PRESETS[keys])
+    assert len(history) == 2 and all(np.isfinite(entry["loss"]) for entry in history)
+    adapted = {k.split(".lora_")[0] for k, _ in tree_flatten(model.trainable_parameters())}
+    assert any("switch_mlp" in k for k in adapted) == (keys == "attn+experts")
+    assert not any(k.endswith("mlp.gate") for k in adapted)  # the router is never adapted

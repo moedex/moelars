@@ -175,6 +175,35 @@ KEY_PRESETS: dict[str, list[str] | None] = {
 }
 
 
+def stop_router_index_gradients() -> None:
+    """Make mlx-lm's Qwen3-MoE block trainable. It routes with argpartition indices that carry
+    no stop_gradient, so any backward pass through it fails with "Cannot calculate VJP with
+    respect to indices"; mlx-lm's other MoE models stop that gradient. The forward pass is
+    unchanged. Idempotent, and a no-op when the module is missing."""
+    try:
+        from mlx_lm.models import qwen3_moe
+    except ImportError:
+        return
+    block = qwen3_moe.Qwen3MoeSparseMoeBlock
+    if getattr(block, "_moelars_routes_without_index_gradients", False):
+        return
+
+    def __call__(self, x):
+        import mlx.core as mx
+
+        gates = mx.softmax(self.gate(x), axis=-1, precise=True)
+        k = self.top_k
+        inds = mx.stop_gradient(mx.argpartition(gates, kth=-k, axis=-1)[..., -k:])
+        scores = mx.take_along_axis(gates, inds, axis=-1)
+        if self.norm_topk_prob:
+            scores = scores / mx.sum(scores, axis=-1, keepdims=True)
+        y = self.switch_mlp(x, inds)
+        return (y * scores[..., None]).sum(axis=-2)
+
+    block.__call__ = __call__
+    block._moelars_routes_without_index_gradients = True
+
+
 def add_lora(model: Any, num_layers: int, rank: int, scale: float, dropout: float,
              keys: list[str] | None = None) -> dict[str, Any]:
     """Freeze the backbone and add LoRA to the last `num_layers` blocks (-1 for all). Returns the adapter config.
@@ -233,6 +262,7 @@ def train(
     # Labels come in a fixed canonical order, so the first K are the ones the engine uses for
     # a K-option question; only as many as the widest record are needed.
     labels = assign_labels(max(len(r.options) for r in [*train_records, *heldout_records]), backend.is_single_token)
+    stop_router_index_gradients()
     config = add_lora(model, num_layers, rank, scale, dropout, keys)
     config["moelars"] = {**(meta or {}), "lr": lr, "epochs": epochs, "brier_weight": brier_weight,
                         "batch_tokens": batch_tokens, "max_tokens": max_tokens, "seed": seed}
