@@ -15,6 +15,9 @@ step() { echo "=== $(date '+%H:%M:%S') $1"; }
 step "lora-30b: attention-only LoRA, full corpus, one epoch"
 $UV run python -m moelars.train.lora --model $M30 --keys attn --records $RECORDS --limit 20000 \
   --out checkpoints/lora-30b > logs/lora-30b.log 2>&1
+if grep -q '"improved": false' checkpoints/lora-30b/adapter_config.json; then
+  step "STOP: no checkpoint beat the untrained 30B; the saved adapter is the identity"; exit 1
+fi
 step "suite-30b-lora: adapter, per-config calibration, per-row dumps"
 $UV run python evals/run_suite.py --backend mlx --model $M30 --adapter checkpoints/lora-30b --tag lora-rows \
   --dump-rows > logs/suite-30b-lora.log 2>&1

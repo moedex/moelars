@@ -67,7 +67,8 @@ model's features. `moelars.train.lora` uses the same sampling, `--limit`, and se
 `extract`, so both hold out the same sources.
 
 ```bash
-# 1. LoRA through the label readout (GPU, the long step). Saves the best held-out checkpoint.
+# 1. LoRA through the label readout (GPU, the long step). Saves the best held-out checkpoint;
+#    if none beats the untrained model, saves the identity with "improved": false in adapter_config.json.
 uv run python -m moelars.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
     --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl data/train/tasksource-jev.train.jsonl \
     --limit 20000 --out checkpoints/lora-4b

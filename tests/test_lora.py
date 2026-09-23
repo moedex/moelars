@@ -190,3 +190,26 @@ def test_lora_trains_through_a_mixture_of_experts_block(tmp_path, keys):
     adapted = {k.split(".lora_")[0] for k, _ in tree_flatten(model.trainable_parameters())}
     assert any("switch_mlp" in k for k in adapted) == (keys == "attn+experts")
     assert not any(k.endswith("mlp.gate") for k in adapted)  # the router is never adapted
+
+
+def test_a_run_that_never_beats_the_untrained_model_saves_the_identity(tmp_path):
+    """With a learning rate that only hurts, the saved adapter must be the untrained one, not the last state."""
+    import json
+
+    backend = _Backend(_tiny(seed=3))
+    examples, _ = lora.presentations(backend, _records(), ["A", "B", "C"], rng=None, max_tokens=2048)
+    batch = lora.collate(mx, examples)[:4]
+    before = np.asarray(lora.readout(mx, backend.model, *batch))
+    out = tmp_path / "adapter"
+    out.mkdir()
+    (out / "adapters.safetensors").write_bytes(b"stale")  # must not pass for this run's selection
+    # Train on the opposite of the held-out targets, so held-out Brier only gets worse.
+    flipped = [Record(r.id, r.source, r.kind, r.state, r.question, r.options, r.target[::-1]) for r in _records()]
+    history = lora.train(backend, flipped * 8, _records(), out, epochs=2, lr=3e-2, rank=4, scale=2.0,
+                         eval_every=0, grad_checkpoint=False)
+    assert not any(entry.get("selected") for entry in history)
+    assert json.loads((out / "adapter_config.json").read_text())["moelars"]["improved"] is False
+    assert (tmp_path / "adapter.last" / "adapters.safetensors").exists()
+    assert np.allclose(np.asarray(lora.readout(mx, backend.model, *batch)), before, atol=1e-5)
+    fresh = load_adapters(_tiny(seed=3), str(out))
+    assert np.allclose(np.asarray(lora.readout(mx, fresh, *batch)), before, atol=1e-5)

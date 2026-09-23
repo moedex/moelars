@@ -4,8 +4,11 @@ The loss is on the K label logits at the answer position, cross-entropy plus Bri
 the record's target, not on generated text, so training optimizes exactly what serving
 reads. Choice records get a fresh option order every epoch, so the adapter cannot learn
 letter positions. Whole sources are held out (the same split as the pointer head), and the
-adapter is saved whenever held-out Brier improves: in-distribution gains are cheap,
-generalization is what we are buying.
+adapter is saved whenever held-out Brier improves on the best so far, starting from the
+untrained model: in-distribution gains are cheap, generalization is what we are buying. If
+no checkpoint beats the untrained model, the saved adapter is the untrained one (the
+backbone exactly), marked `"improved": false`, and the last trained state goes to
+`<out>.last/` for inspection only.
 
 Adapters are saved in mlx-lm's format (`adapters.safetensors` plus `adapter_config.json`),
 so `mlx_lm.load(model, adapter_path=...)` and `--adapter` on every moe-LARS entry point load
@@ -273,6 +276,11 @@ def train(
 
         checkpoint_blocks(model.layers[0])
     trainable = sum(v.size for _, v in tree_flatten(model.trainable_parameters()))
+    # LoRA's B starts at zero, so this is the backbone exactly: the adapter to fall back to.
+    untrained = [(k, mx.array(v)) for k, v in tree_flatten(model.trainable_parameters())]
+    stale = out / "adapters.safetensors"
+    if stale.exists():
+        stale.unlink()  # an adapter from an earlier run must not pass for this run's selection
     print(f"trainable parameters: {trainable:,} across {config['num_layers']} blocks", flush=True)
 
     heldout, skipped_heldout = presentations(backend, heldout_records, labels, rng=None, max_tokens=max_tokens)
@@ -312,6 +320,7 @@ def train(
             improved = True
         if improved:
             best = entry["heldout"]["brier"] if heldout else None
+            config["moelars"]["improved"] = True
             save_adapter(model, out, config)
             entry["selected"] = True
         history.append(entry)
@@ -340,7 +349,12 @@ def train(
         # Leave the model at the selected checkpoint, as the head trainer does.
         model.load_weights(str(out / "adapters.safetensors"), strict=False)
     else:
-        save_adapter(model, out, config)  # nothing beat the baseline; keep the last state for inspection
+        print("no checkpoint beat the untrained model; saving the untrained adapter (identity), "
+              f"last trained state in {out.name}.last/", flush=True)
+        config["moelars"]["improved"] = False
+        save_adapter(model, out.parent / f"{out.name}.last", config)
+        model.load_weights(untrained, strict=False)
+        save_adapter(model, out, config)
     return history
 
 
