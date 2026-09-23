@@ -451,3 +451,74 @@ now patches it (same forward pass, tested). Two 400-record probes:
 
 Attention-only LoRA on the 30B is practical on a 64 GB machine; adapting every expert is
 not. The full run (about 1,100 steps, 3.5 to 4 hours) is `scripts/queue_30b_lora.sh`.
+
+## 2026-09-23: attention-only LoRA on the 30B-A3B, and routing to it
+
+Run on a 128 GB M5 Max (the earlier 30B numbers ran on a 64 GB machine). Same corpus,
+split, and defaults as the 4B adapter (14285 records, 12685 train / 1600 held out, lr
+2e-5, rank 8, scale 20, one epoch), `--keys attn`: 6.7M trainable parameters. 1095 steps
+in 135 minutes (8.1 steps/min), 33 GB peak. `scripts/queue_30b_lora.sh`; history and
+config in `evals/results/lora-30b.{history,adapter_config}.json`.
+
+| held-out (1600 rows) | step 0 | 500 | **1000 (selected)** | 1095 |
+|---|---|---|---|---|
+| acc | 0.583 | 0.619 | 0.635 | 0.639 |
+| Brier | 0.742 | 0.466 | **0.454** | 0.456 |
+| ECE | 0.354 | 0.124 | 0.126 | 0.124 |
+
+**The adapted 30B alone is 0.752 macro accuracy, Brier 0.295, ECE 0.060**
+(`evals/results/qwen3-30b-a3b-instruct-2507-4bit-lora-rows.md`, adapter unfused), against
+0.733 / 0.349 / 0.113 for Jev, 0.731 for the 4B plus LoRA, 0.680 for the zero-shot 30B,
+and 0.746 for the previous best (4B routed to the zero-shot 30B). Without civil_comments
+(the majority-baseline caveat) it is 0.743 against Jev's 0.733.
+
+| config | 30B zero-shot | 4B + LoRA | **30B + LoRA** | Jev |
+|---|---|---|---|---|
+| helpsteer2_verbosity | 0.110 | 0.675 | **0.695** | 0.341 |
+| measuring_hate_speech | 0.490 | 0.760 | 0.705 | 0.527 |
+| go_emotions | 0.300 | 0.470 | 0.480 | 0.282 |
+| ledgar | 0.600 | 0.740 | 0.750 | 0.751 |
+| clinc150 | 0.790 | 0.890 | 0.875 | 0.893 |
+| strategyqa_closed | 0.645 | 0.660 | 0.730 | 0.785 |
+| mnli | 0.780 | 0.820 | 0.845 | 0.883 |
+| mmlu | 0.780 | 0.700 | 0.750 | 0.923 |
+| stsb | 0.425 | 0.235 | 0.350 | 0.538 |
+
+- LoRA lifts the 30B on 19 of 22 configs; the largest gains are the format failures of the
+  zero-shot model (helpsteer2_verbosity, measuring_hate_speech, go_emotions, ledgar).
+- It loses on stsb (0.425 to 0.350) and mmlu (0.780 to 0.750), the same two the 4B's
+  adapter hurt, and chaosnli is flat. The stsb regression is smaller than on the 4B (0.395
+  to 0.235), but it is the same effect: the ordinal-score item under "After that" applies
+  to both models.
+
+**Routing, 4B + LoRA primary, 30B + LoRA fallback** (`evals/cascade.py`, floors on
+validation only):
+
+| policy | val acc | test acc | test Brier | escalated (test) |
+|---|---|---|---|---|
+| 4B + LoRA alone | 0.736 | 0.731 | 0.317 | 0% |
+| 30B + LoRA alone | 0.753 | 0.752 | 0.295 | 100% |
+| switch, global floor 0.7 | 0.759 | 0.754 | 0.300 | 39.2% |
+| switch, per-kind floors (choice 0.75, noul 0.7, score 0.7) | 0.759 | 0.754 | 0.299 | 40.7% |
+| blend, global floor 0.9 | 0.761 | 0.758 | 0.293 | 60.4% |
+| blend, per-kind floors (choice 0.75, noul 0.9, score 0.65) | 0.761 | 0.757 | 0.297 | 46.3% |
+| always blend (both models on every row) | 0.761 | 0.759 | 0.291 | 100% |
+
+- With an adapted fallback, routing adds little: the best validation policy is 0.757 at
+  46% escalated, half a point over the 30B alone, and always blending both models is
+  0.759. These differences sit inside the ~0.7-point noise of 200 rows per config.
+- So the question is now cost, not accuracy: the 30B + LoRA alone (one model, 18.6 GB
+  peak) against the 4B-then-30B pair. In-suite ms/row are not comparable across the two
+  machines; `scripts/load_cost.py` on this machine settles it.
+
+**Probes on this machine** (400 records, 31 steps, held-out 55 rows, `scripts/queue_30b_lora_probe.sh`):
+
+| keys | trainable params | speed | peak memory | held-out before, after 31 steps |
+|---|---|---|---|---|
+| attn | 6.7M | 8.9 steps/min | 33 GB | acc 0.691 to 0.709, Brier 0.548 to 0.437 |
+| attn+experts | 422M | 4.0 steps/min | 93 GB | acc 0.691 to 0.727, Brier 0.548 to 0.396 |
+
+With 128 GB, adapting every expert no longer swaps: a full epoch would be about 4.6 hours.
+Its 31-step held-out edge (Brier 0.396 against 0.437) is on 55 rows and one seed, so it is
+a reason to run it, not a result. (The attention probe's end point differs from the 64 GB
+machine's, 0.417, with the same seed; MLX training is not bit-reproducible across hardware.)
