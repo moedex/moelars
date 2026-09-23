@@ -402,3 +402,52 @@ calibration and compared with the unfused adapter above (accuracy, calibrated):
   recovers toward Tier A for the same reason. Do not serve a re-quantized fused model;
   training the adapter against quantization (or DWQ-style distillation into the 4-bit
   weights) would be needed first.
+
+## 2026-09-23: fused adapter on all 22 configs, 4B-to-30B routing, 30B LoRA probes
+
+**The bf16-fused adapter matches the unfused one on the full suite**: 0.731 macro
+accuracy, ECE 0.074, Brier 0.317 (`evals/results/lora-4b-fused-bf16-rows.md`). It is
+the 4B primary from here on.
+
+**Routing.** Both the fused 4B plus LoRA and the zero-shot 30B-A3B were rerun with
+`--dump-rows`, and `evals/cascade.py` combined them offline. A row is escalated when the
+4B's calibrated top probability is under a floor; `switch` answers an escalated row with
+the 30B, `blend` with the mean of both. Floors are chosen on validation rows only,
+globally or per primitive, then applied to test. The dumps are committed under
+`evals/results/rows/`.
+
+| policy | val acc | test acc | test Brier | escalated (test) |
+|---|---|---|---|---|
+| 4B + LoRA alone | 0.736 | 0.731 | 0.317 | 0% |
+| 30B-A3B alone | 0.683 | 0.680 | 0.372 | 100% |
+| switch, global floor 0.45 | 0.738 | 0.738 | 0.318 | 16.5% |
+| switch, per-kind floors (choice 0.15, noul 0.0, score 0.35) | 0.741 | 0.740 | 0.313 | 5.3% |
+| blend, global floor 0.75 | 0.745 | 0.748 | 0.309 | 44.1% |
+| **blend, per-kind floors (choice 0.85, noul 0.55, score 0.35)** | **0.749** | **0.746** | **0.308** | **25.8%** |
+| always blend (both models on every row) | 0.744 | 0.748 | 0.311 | 100% |
+| Jev (published) | | 0.733 | 0.349 | |
+
+- **The validation-chosen policy (blend, per-kind floors) is 0.746 on test, 1.3 points
+  above Jev, with Brier 0.308 against 0.349**, escalating a quarter of rows. Validation
+  agrees on the direction (0.736 alone, 0.749 routed). At about twice the 4B's cost per
+  escalated row, that is roughly 1.5 times the 4B's compute.
+- The gain is where the 30B knows more: mmlu 0.700 to 0.770, stsb 0.235 to 0.405,
+  chaosnli 0.635 to 0.690, arc_challenge 0.930 to 0.955. go_emotions escalates 98.5% of
+  rows (the 4B is never confident on 28 options) and gives back 1 point.
+- Blending beats switching: averaging keeps the 4B's vote on rows where the 30B is
+  confidently wrong (helpsteer2_verbosity, where the 30B is at 0.110).
+- Caveats: 200 test rows per config puts macro noise near 0.7 points; the civil_comments
+  majority-baseline caveat still applies; the dumps pair rows by position, not by example
+  ID (codebase review M14), which holds here because both suites read the same files.
+
+**LoRA on the 30B-A3B.** mlx-lm's `qwen3_moe` block routes with argpartition indices
+that carry no `stop_gradient`, so the first backward pass failed; `moelars.train.lora`
+now patches it (same forward pass, tested). Two 400-record probes:
+
+| keys | trainable params | speed | peak memory | held-out (55 rows) before, after 31 steps |
+|---|---|---|---|---|
+| attn | 6.7M | 5.5 steps/min (4B full LoRA: 9.7) | 32 GB | acc 0.691 to 0.745, Brier 0.548 to 0.417 |
+| attn+experts | 422M | under 0.6 steps/min, swapping | | stopped after 52 minutes without finishing an epoch |
+
+Attention-only LoRA on the 30B is practical on a 64 GB machine; adapting every expert is
+not. The full run (about 1,100 steps, 3.5 to 4 hours) is `scripts/queue_30b_lora.sh`.

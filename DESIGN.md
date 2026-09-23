@@ -233,9 +233,11 @@ opt-in for fixed schemas with a calibration set.
    a head on top of the adapter adds nothing in total. Held-out forms are flat except
    stsb, which the adapter breaks (0.395 to 0.235). Qwen3-30B-A3B zero-shot is 0.680 and
    strongest exactly where the adapted 4B is weakest (knowledge, stsb, held-out forms).
-   Next: fix score tasks under LoRA (ordinal-aware loss, more score sources), and the
-   cascade (round two) from the adapted 4B to the 30B-A3B, simulated first from per-row
-   suite dumps (`evals/cascade.py`).
+   Simulated from per-row suite dumps (`evals/cascade.py`), routing the adapted 4B's
+   low-confidence rows to the zero-shot 30B-A3B and averaging there reaches 0.746 with a
+   quarter of rows escalated, floors chosen on validation. Attention-only LoRA on the
+   30B-A3B fits a 64 GB machine. Next: that full run, then routing with the adapted 30B as
+   fallback, and fixing score tasks under LoRA (ordinal-aware loss, more score sources).
 5. **Extensions round two**: batched states, `not_stated`, cascade, replay cache.
 6. **Tier C** and the probe and red-team suites in CI.
 
