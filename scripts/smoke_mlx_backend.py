@@ -17,9 +17,9 @@ import sys
 
 import numpy as np
 
-from moelar.backends.mlx import MLXBackend
-from moelar.render import compose_prompt, render_choice, render_content
-from moelar.schema import ChoiceQuestion
+from moelars.backends.mlx import MLXBackend
+from moelars.render import compose_prompt, render_choice, render_content
+from moelars.schema import ChoiceQuestion
 
 
 def _bf16_step(magnitude: float) -> float:

@@ -8,11 +8,11 @@ adapter is saved whenever held-out Brier improves: in-distribution gains are che
 generalization is what we are buying.
 
 Adapters are saved in mlx-lm's format (`adapters.safetensors` plus `adapter_config.json`),
-so `mlx_lm.load(model, adapter_path=...)` and `--adapter` on every MoeLAR entry point load
+so `mlx_lm.load(model, adapter_path=...)` and `--adapter` on every moe-LARS entry point load
 them. A pointer head for the adapted model is then trained on features extracted with
-`python -m moelar.train.extract --adapter ...`.
+`python -m moelars.train.extract --adapter ...`.
 
-    uv run python -m moelar.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
+    uv run python -m moelars.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
         --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl \
         data/train/tasksource-jev.train.jsonl --limit 20000 --out checkpoints/lora-4b
 """
@@ -30,10 +30,10 @@ from typing import Any
 
 import numpy as np
 
-from moelar.labels import assign_labels
-from moelar.render import compose_prompt, render_content
-from moelar.train.data import Record, read_records, split_by_group
-from moelar.train.features import _render
+from moelars.labels import assign_labels
+from moelars.render import compose_prompt, render_content
+from moelars.train.data import Record, read_records, split_by_group
+from moelars.train.features import _render
 
 
 @dataclass
@@ -146,7 +146,7 @@ def loss_fn(mx: Any, model: Any, ids, lengths, label_ids, kmask, target, brier_w
 
 
 def evaluate(mx: Any, model: Any, examples: list[Example], batch_tokens: int) -> dict[str, float]:
-    from moelar.calibration import ece
+    from moelars.calibration import ece
 
     hits, conf, brier = [], [], 0.0
     for batch in batches(examples, batch_tokens, rng=None):
@@ -217,7 +217,7 @@ def train(
     # a K-option question; only as many as the widest record are needed.
     labels = assign_labels(max(len(r.options) for r in [*train_records, *heldout_records]), backend.is_single_token)
     config = add_lora(model, num_layers, rank, scale, dropout)
-    config["moelar"] = {**(meta or {}), "lr": lr, "epochs": epochs, "brier_weight": brier_weight,
+    config["moelars"] = {**(meta or {}), "lr": lr, "epochs": epochs, "brier_weight": brier_weight,
                         "batch_tokens": batch_tokens, "max_tokens": max_tokens, "seed": seed}
     if grad_checkpoint:
         # Recompute each block's activations in the backward pass instead of keeping them;
@@ -324,7 +324,7 @@ def main() -> int:
     for path in args.records:
         records.extend(read_records(path))
     records = [r for r in records if len(r.options) <= args.max_options]
-    # Same sampling and split as `moelar.train.extract` with the same seed, so the adapter
+    # Same sampling and split as `moelars.train.extract` with the same seed, so the adapter
     # and a head trained after it hold out the same sources.
     rng.shuffle(records)
     records = records[: args.limit]
@@ -332,7 +332,7 @@ def main() -> int:
     print(f"records: {len(records)} -> train {len(train_records)} / heldout {len(heldout_records)} "
           f"(held-out sources: {sorted({r.source for r in heldout_records})[:8]}...)", flush=True)
 
-    from moelar.backends.mlx import MLXBackend
+    from moelars.backends.mlx import MLXBackend
 
     backend = MLXBackend(args.model)
     train(backend, train_records, heldout_records, args.out, epochs=args.epochs, lr=args.lr, rank=args.rank,

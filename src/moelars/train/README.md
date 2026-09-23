@@ -32,7 +32,7 @@ generalization to question forms the head never saw.
 
 ## Data
 
-    uv run python -m moelar.train.build --out data/train
+    uv run python -m moelars.train.build --out data/train
 
 pulls Open-Jev (CC0), tasksource-jev, and the jev-bench train and validation splits,
 converts them to `Record` JSONL, and writes a manifest with per-source counts.
@@ -43,19 +43,19 @@ No data labeled by Jev is used. See `DESIGN.md` section 8.
 
 ```bash
 # 1. corpus (CPU, downloads)
-uv run python -m moelar.train.build --out data/train --max-per-source 4000 --jev-bench-per-config 300
+uv run python -m moelars.train.build --out data/train --max-per-source 4000 --jev-bench-per-config 300
 
 # 2. features from the frozen backbone (GPU). Whole sources are held out.
-uv run python -m moelar.train.extract --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
+uv run python -m moelars.train.extract --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
     --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl data/train/tasksource-jev.train.jsonl \
     --test-records evals/data/*.test.jsonl --limit 3000 --holdout-fraction 0.2 --out data/features
 
 # 3. train the head on cached features (seconds)
-uv run python -m moelar.train.residual --train data/features/train.npz --heldout data/features/heldout.npz \
+uv run python -m moelars.train.residual --train data/features/train.npz --heldout data/features/heldout.npz \
     --out checkpoints/pointer_head.npz
 
 # 4. serve with it
-uv run moelar serve --backend mlx --model <model> --head checkpoints/pointer_head.npz \
+uv run moelars serve --backend mlx --model <model> --head checkpoints/pointer_head.npz \
     --projection data/features/projection.npy
 ```
 
@@ -63,20 +63,20 @@ uv run moelar serve --backend mlx --model <model> --head checkpoints/pointer_hea
 
 The half of Tier B that `DESIGN.md` specifies beyond the frozen-feature head: adapt the
 backbone with LoRA through the same label readout, then train a head on the adapted
-model's features. `moelar.train.lora` uses the same sampling, `--limit`, and seed as
+model's features. `moelars.train.lora` uses the same sampling, `--limit`, and seed as
 `extract`, so both hold out the same sources.
 
 ```bash
 # 1. LoRA through the label readout (GPU, the long step). Saves the best held-out checkpoint.
-uv run python -m moelar.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
+uv run python -m moelars.train.lora --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
     --records data/train/open-jev.train.jsonl data/train/jev-bench.train.jsonl data/train/tasksource-jev.train.jsonl \
     --limit 20000 --out checkpoints/lora-4b
 
 # 2. features from the adapted model, then a head on them, as above
-uv run python -m moelar.train.extract --model mlx-community/Qwen3-4B-Instruct-2507-4bit --adapter checkpoints/lora-4b \
+uv run python -m moelars.train.extract --model mlx-community/Qwen3-4B-Instruct-2507-4bit --adapter checkpoints/lora-4b \
     --records ... --test-records evals/data/*.test.jsonl --test-limit 1100 --limit 20000 --max-options 160 \
     --out data/features-lora
-uv run python -m moelar.train.residual --train data/features-lora/train.npz --heldout data/features-lora/heldout.npz \
+uv run python -m moelars.train.residual --train data/features-lora/train.npz --heldout data/features-lora/heldout.npz \
     --epochs 10 --out checkpoints/pointer_head_lora.npz
 
 # 3. fair suite; --adapter works on serve, eval, and calibrate too
@@ -94,7 +94,7 @@ the vocabulary. LoRA's `scale` multiplies every update, so keep the learning rat
 First real run done on Qwen3-4B features, see `evals/RESULTS.md`: +2.6 macro accuracy,
 ECE down a third, Brier down a fifth on the jev-bench test shard with no per-config
 calibration; held-out sources neutral on accuracy and better on Brier. Checkpoint
-selection is by held-out Brier. `python -m moelar.train.report` gives the per-source
+selection is by held-out Brier. `python -m moelars.train.report` gives the per-source
 table. The fair comparison (head plus per-config calibration against Tier A plus the
 same) is +1.8 macro accuracy, all on sources the head trained on; held-out sources are
 neutral. `evals/run_suite.py --head ... --tag head` reproduces it. Next: train on the

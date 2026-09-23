@@ -1,6 +1,6 @@
 import numpy as np
 
-from moelar.primitives import (
+from moelars.primitives import (
     choice_confidence,
     expected_score,
     order_sensitivity,

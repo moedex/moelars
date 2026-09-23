@@ -12,9 +12,9 @@ from mlx.utils import tree_flatten  # noqa: E402
 from mlx_lm.models import qwen3  # noqa: E402
 from mlx_lm.tuner.utils import load_adapters  # noqa: E402
 
-from moelar.render import TEMPLATES  # noqa: E402
-from moelar.train import lora  # noqa: E402
-from moelar.train.data import Record  # noqa: E402
+from moelars.render import TEMPLATES  # noqa: E402
+from moelars.train import lora  # noqa: E402
+from moelars.train.data import Record  # noqa: E402
 
 VOCAB = 97
 

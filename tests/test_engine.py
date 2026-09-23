@@ -1,8 +1,8 @@
 import pytest
 
-from moelar.backends.mock import MockBackend
-from moelar.engine import Engine
-from moelar.schema import ChoiceAnswer, MultiAnswer, NoulAnswer, ScoreAnswer, SystemOneRequest
+from moelars.backends.mock import MockBackend
+from moelars.engine import Engine
+from moelars.schema import ChoiceAnswer, MultiAnswer, NoulAnswer, ScoreAnswer, SystemOneRequest
 
 STATE = "Help! My payouts have been failing for 3 days. This is the second time I have written in."
 QUESTIONS = {
@@ -51,7 +51,7 @@ def test_basic_shapes(engine):
 
     assert response.usage.input_tokens > 0
     assert response.usage.output_tokens == 5  # 1 choice + 1 score + 1 noul + 2 multi rows
-    assert response.model.startswith("moelar-")
+    assert response.model.startswith("moelars-")
 
 
 def test_determinism(engine):
@@ -62,7 +62,7 @@ def test_determinism(engine):
 
 
 def test_permutations_report_order_sensitivity(engine):
-    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelar={"permutations": 4})
+    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelars={"permutations": 4})
     dept = engine.evaluate(request).answers["department"]
     assert isinstance(dept, ChoiceAnswer)
     assert dept.order_sensitivity is not None
@@ -71,10 +71,10 @@ def test_permutations_report_order_sensitivity(engine):
 
 
 def test_abstain_margin(engine):
-    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelar={"abstain_margin": 1.0})
+    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelars={"abstain_margin": 1.0})
     answers = engine.evaluate(request).answers
     assert answers["department"].abstain is True
-    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelar={"abstain_margin": 0.0})
+    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelars={"abstain_margin": 0.0})
     answers = engine.evaluate(request).answers
     assert answers["department"].abstain is False
 
@@ -87,7 +87,7 @@ def test_complement_constraint(engine):
     request = SystemOneRequest(
         state=STATE,
         questions=questions,
-        moelar={"constraints": [{"kind": "complement", "questions": ["needs_human", "bot_can_resolve"]}]},
+        moelars={"constraints": [{"kind": "complement", "questions": ["needs_human", "bot_can_resolve"]}]},
     )
     answers = engine.evaluate(request).answers
     assert abs(answers["needs_human"].noul + answers["bot_can_resolve"].noul - 1.0) < 1e-3
@@ -98,14 +98,14 @@ def test_exclusive_constraint_rescales(engine):
     request = SystemOneRequest(
         state=STATE,
         questions=questions,
-        moelar={"constraints": [{"kind": "exclusive", "questions": list(questions)}]},
+        moelars={"constraints": [{"kind": "exclusive", "questions": list(questions)}]},
     )
     answers = engine.evaluate(request).answers
     assert sum(a.noul for a in answers.values()) <= 1.0 + 1e-6
 
 
 def test_explain_returns_evidence(engine):
-    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelar={"explain": True})
+    request = SystemOneRequest(state=STATE, questions=QUESTIONS, moelars={"explain": True})
     answers = engine.evaluate(request).answers
     dept = answers["department"]
     assert isinstance(dept, ChoiceAnswer)
@@ -129,7 +129,7 @@ def test_validation_rejects_bad_questions():
         SystemOneRequest(
             state=STATE,
             questions={"a": {"type": "noul"}},
-            moelar={"constraints": [{"kind": "complement", "questions": ["a", "missing"]}]},
+            moelars={"constraints": [{"kind": "complement", "questions": ["a", "missing"]}]},
         )
 
 

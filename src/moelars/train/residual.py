@@ -6,7 +6,7 @@ W_q is zero-initialized so training starts exactly at the backbone's own answer.
 Loss = cross-entropy + Brier on the presented order, plus permutation-KL between the
 canonical presentation and each shuffled one after realignment.
 
-    uv run python -m moelar.train.residual --train data/features/train.npz --heldout data/features/heldout.npz
+    uv run python -m moelars.train.residual --train data/features/train.npz --heldout data/features/heldout.npz
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _mlx():
 
 class Shard:
     def __init__(self, path: str | Path):
-        from moelar.heads import rms_normalize
+        from moelars.heads import rms_normalize
 
         data = np.load(path)
         self.h_ans = rms_normalize(data["h_ans"])
@@ -143,7 +143,7 @@ def evaluate(mx, head, shard: Shard, batch_size: int = 256) -> dict[str, float]:
         conf.extend(p_np.max(-1).tolist())
         brier += (((p_np - t_np) ** 2) * shard.mask[idx]).sum(-1).sum()
         n += len(idx)
-    from moelar.calibration import ece
+    from moelars.calibration import ece
 
     return {
         "n": int(n),

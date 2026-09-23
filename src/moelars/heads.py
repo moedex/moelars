@@ -1,4 +1,4 @@
-"""Serving-side pointer head: numpy only, loads what `moelar.train.residual` saves.
+"""Serving-side pointer head: numpy only, loads what `moelars.train.residual` saves.
 
     logits_i = exp(log_s[kind]) * z_i + (h_ans W_q) . (h_opt_i W_k) / sqrt(rank) + [i == 0] * bias[kind == noul]
 
@@ -37,7 +37,7 @@ class PointerHeadScorer:
         return cls(data["q.weight"], data["k.weight"], data["log_s"], data["bias"], np.load(projection_path))
 
     def project(self, hidden: np.ndarray) -> np.ndarray:
-        """Fixed projection then RMS normalization, matching `moelar.train.residual.Shard`."""
+        """Fixed projection then RMS normalization, matching `moelars.train.residual.Shard`."""
         return rms_normalize(hidden.astype(np.float32) @ self.projection)
 
     def adjust(self, z: np.ndarray, h_ans: np.ndarray, h_opt: np.ndarray, kind: str) -> np.ndarray:

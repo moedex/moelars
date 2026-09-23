@@ -17,7 +17,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from moelar.schema import (
+from moelars.schema import (
     ChoiceQuestion,
     JSONContent,
     MultiQuestion,
@@ -26,7 +26,7 @@ from moelar.schema import (
     SystemOneRequest,
 )
 
-SENTINEL = "\u0000MOELAR_QUESTION\u0000"
+SENTINEL = "\u0000MOELARS_QUESTION\u0000"
 
 SYSTEM_PROMPT = (
     "You are a decision model. You will be shown STATE and one QUESTION with lettered OPTIONS. "
@@ -166,7 +166,7 @@ def _split_units(state_text: str) -> list[str]:
 def plan_rows(request: SystemOneRequest, labels: list[str]) -> list[Row]:
     """Turn a request into rows: base rows, permutation rows, and ablation rows."""
     rows: list[Row] = []
-    options = request.moelar
+    options = request.moelars
 
     def base_rows(state_text: str | None, variant: str, ablated: str | None) -> None:
         for qid, question in request.questions.items():

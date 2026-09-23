@@ -14,11 +14,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from moelar.backends.base import Backend
-from moelar.calibration import Calibrator
-from moelar.heads import PointerHeadScorer
-from moelar.labels import assign_labels
-from moelar.primitives import (
+from moelars.backends.base import Backend
+from moelars.calibration import Calibrator
+from moelars.heads import PointerHeadScorer
+from moelars.labels import assign_labels
+from moelars.primitives import (
     choice_confidence,
     expected_score,
     order_sensitivity,
@@ -29,8 +29,8 @@ from moelar.primitives import (
     top_margin,
     total_variation,
 )
-from moelar.render import Row, compose_prompt, plan_rows, render_content
-from moelar.schema import (
+from moelars.render import Row, compose_prompt, plan_rows, render_content
+from moelars.schema import (
     MAX_CHOICE_OPTIONS,
     Answer,
     ChoiceAnswer,
@@ -47,7 +47,7 @@ from moelar.schema import (
     Usage,
 )
 
-MODEL_ALIAS = "moelar-latest"
+MODEL_ALIAS = "moelars-latest"
 MAX_EVIDENCE = 3
 
 
@@ -78,14 +78,14 @@ class Engine:
 
     @property
     def model_id(self) -> str:
-        return f"moelar-{self.version}+{self.backend.name}:{self.backend.model_name}"
+        return f"moelars-{self.version}+{self.backend.name}:{self.backend.model_name}"
 
     def models(self) -> list[ModelCard]:
         return [
             ModelCard(name=MODEL_ALIAS, description=f"Alias for {self.model_id}", release_date="2026-09-22"),
             ModelCard(
                 name=self.model_id,
-                description=f"MoeLAR {self.version} on {self.backend.name} backend ({self.backend.model_name})",
+                description=f"moe-LARS {self.version} on {self.backend.name} backend ({self.backend.model_name})",
                 release_date="2026-09-22",
             ),
         ]
@@ -94,7 +94,7 @@ class Engine:
         rows = plan_rows(request, self.labels)
         scored = self._score(request, rows)
         answers = self._reduce(request, scored)
-        self._apply_constraints(answers, request.moelar.constraints)
+        self._apply_constraints(answers, request.moelars.constraints)
         usage = self._usage(request, rows)
         return SystemOneResponse(model=self.model_id, answers=answers, usage=usage)
 
@@ -144,7 +144,7 @@ class Engine:
             by_question[item.row.question_id].append(item)
 
         answers: dict[str, Answer] = {}
-        options = request.moelar
+        options = request.moelars
         for qid, question in request.questions.items():
             items = by_question[qid]
             base = [s for s in items if s.row.variant == "base" or s.row.variant.startswith("base:")]

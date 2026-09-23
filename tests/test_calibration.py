@@ -1,6 +1,6 @@
 import numpy as np
 
-from moelar.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
+from moelars.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
 
 
 def test_fit_temperature_recovers_flatter_scale_for_overconfident_logits():

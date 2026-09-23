@@ -1,6 +1,6 @@
 """Per-source comparison of the backbone alone versus a trained head on a feature shard.
 
-    uv run python -m moelar.train.report --shard data/features/test.npz \
+    uv run python -m moelars.train.report --shard data/features/test.npz \
         --head checkpoints/pointer_head.npz --sources data/features/sources.json
 """
 
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
-from moelar.calibration import ece
-from moelar.train.residual import Shard, _batch, _log_softmax, _mlx, build_head
+from moelars.calibration import ece
+from moelars.train.residual import Shard, _batch, _log_softmax, _mlx, build_head
 
 
 def _load_head(mx, path: Path, proj_dim: int):

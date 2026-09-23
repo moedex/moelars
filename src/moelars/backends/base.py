@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from moelar.render import TemplateFn
+from moelars.render import TemplateFn
 
 
 class Backend(ABC):
