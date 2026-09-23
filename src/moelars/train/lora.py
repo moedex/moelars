@@ -164,13 +164,29 @@ def evaluate(mx: Any, model: Any, examples: list[Example], batch_tokens: int) ->
             "brier": brier / n}
 
 
-def add_lora(model: Any, num_layers: int, rank: int, scale: float, dropout: float) -> dict[str, Any]:
-    """Freeze the backbone and add LoRA to the last `num_layers` blocks (-1 for all). Returns the adapter config."""
+# Module paths inside a decoder block, for `--keys`. "all" leaves the choice to mlx-lm, which
+# adapts every linear layer in the block; on a mixture-of-experts model that includes the
+# router and every expert (hundreds of millions of parameters on Qwen3-30B-A3B at rank 8).
+KEY_PRESETS: dict[str, list[str] | None] = {
+    "all": None,
+    "attn": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"],
+    "attn+experts": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj",
+                     "mlp.switch_mlp.gate_proj", "mlp.switch_mlp.up_proj", "mlp.switch_mlp.down_proj"],
+}
+
+
+def add_lora(model: Any, num_layers: int, rank: int, scale: float, dropout: float,
+             keys: list[str] | None = None) -> dict[str, Any]:
+    """Freeze the backbone and add LoRA to the last `num_layers` blocks (-1 for all). Returns the adapter config.
+
+    `keys` restricts LoRA to those module paths within each block; None adapts every linear layer."""
     from mlx_lm.tuner.utils import linear_to_lora_layers
 
     total = len(model.layers)
     num_layers = total if num_layers < 0 else min(num_layers, total)
-    params = {"rank": rank, "scale": scale, "dropout": dropout}
+    params: dict[str, Any] = {"rank": rank, "scale": scale, "dropout": dropout}
+    if keys is not None:
+        params["keys"] = list(keys)  # mlx-lm's load_adapters reads them back from the config
     model.freeze()
     linear_to_lora_layers(model, num_layers, params)
     return {"fine_tune_type": "lora", "num_layers": num_layers, "lora_parameters": params}
@@ -203,6 +219,7 @@ def train(
     grad_checkpoint: bool = True,
     seed: int = 0,
     meta: dict[str, Any] | None = None,
+    keys: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     import mlx.core as mx
     import mlx.nn as nn
@@ -216,7 +233,7 @@ def train(
     # Labels come in a fixed canonical order, so the first K are the ones the engine uses for
     # a K-option question; only as many as the widest record are needed.
     labels = assign_labels(max(len(r.options) for r in [*train_records, *heldout_records]), backend.is_single_token)
-    config = add_lora(model, num_layers, rank, scale, dropout)
+    config = add_lora(model, num_layers, rank, scale, dropout, keys)
     config["moelars"] = {**(meta or {}), "lr": lr, "epochs": epochs, "brier_weight": brier_weight,
                         "batch_tokens": batch_tokens, "max_tokens": max_tokens, "seed": seed}
     if grad_checkpoint:
@@ -316,6 +333,8 @@ def main() -> int:
     parser.add_argument("--eval-every", type=int, default=500, help="steps between held-out evaluations")
     parser.add_argument("--no-grad-checkpoint", action="store_true", help="keep activations; faster, more memory")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--keys", choices=sorted(KEY_PRESETS), default="all",
+                        help="which layers in each block get LoRA; 'attn' or 'attn+experts' for MoE models")
     parser.add_argument("--out", default="checkpoints/lora")
     args = parser.parse_args()
 
@@ -338,8 +357,8 @@ def main() -> int:
     train(backend, train_records, heldout_records, args.out, epochs=args.epochs, lr=args.lr, rank=args.rank,
           scale=args.scale, dropout=args.dropout, num_layers=args.num_layers, brier_weight=args.brier_weight,
           batch_tokens=args.batch_tokens, max_tokens=args.max_tokens, eval_every=args.eval_every,
-          grad_checkpoint=not args.no_grad_checkpoint, seed=args.seed,
-          meta={"model": args.model, "records": args.records, "limit": args.limit,
+          grad_checkpoint=not args.no_grad_checkpoint, seed=args.seed, keys=KEY_PRESETS[args.keys],
+          meta={"model": args.model, "keys": args.keys, "records": args.records, "limit": args.limit,
                 "holdout_fraction": args.holdout_fraction,
                 "heldout_sources": sorted({r.source for r in heldout_records})})
     return 0
