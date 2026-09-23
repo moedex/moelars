@@ -172,6 +172,7 @@ fields are omitted when unset so a plain request yields a byte-compatible respon
 | constraints | `moelars.constraints` | adjusted nouls | invariants callers currently enforce by hand |
 | abstention | `moelars.abstain_margin` | `abstain` | forced choices hide uncertainty from routing code |
 | evidence | `moelars.explain` | `evidence[]` | auditability for consequential decisions |
+| evidence fusion | `moelars.features` per noul | fused `noul` | models are weak at numbers and comparisons that callers can compute exactly; a fitted logistic weighs both |
 | multi-select | `type: "multi"` | `probabilities`, `selected` | frameworks fake this with per-option nouls |
 | local calibration | CLI | fitted temperatures and Platt | the hosted model cannot learn from customer data by policy |
 | deterministic replay | always | same input, same output | greedy logits are deterministic; a content-hash cache is free |

@@ -25,7 +25,8 @@ Three primitives from the System One shape, one moe-LARS addition:
 
 moe-LARS extensions, all opt-in under a `moelars` request key: permutation-averaged choice
 answers with an `order_sensitivity` metric, declared constraints between nouls,
-abstention below a probability margin, and evidence spans by leave-one-out ablation.
+abstention below a probability margin, evidence spans by leave-one-out ablation, and evidence fusion: named numeric features per
+noul (`moelars.features`), combined with the model's logit by a logistic fitted in `calibrate`.
 
 ## Quickstart
 
@@ -88,7 +89,8 @@ uv run moelars eval      --backend mlx --model <model> --calibration calibration
 `eval` reports accuracy, expected calibration error, Brier score, and the coverage you
 can automate at a 5% error budget. The JSONL format is in `evals/README.md`. Nouls get
 a Platt fit on the raw yes-minus-no logit, which can move a biased model's decision
-boundary; choice and score get a temperature. `examples/molar_triage/` walks through
+boundary; choice and score get a temperature. Rows may carry `"features": {"name": value}` for nouls; `calibrate` then also fits an evidence fusion, used
+whenever a request supplies the same features in `moelars.features`. `examples/molar_triage/` walks through
 this end to end on a small hand-labeled dental inbox.
 
 ## Train a decision head (Tier B)

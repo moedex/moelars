@@ -119,6 +119,10 @@ class MoelarsOptions(_Strict):
         None, ge=0.0, le=1.0, description="Mark an answer abstained when top1 - top2 is below this"
     )
     constraints: list[Constraint] = Field(default_factory=list)
+    features: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="Named numeric evidence per noul question, fused with the model by a fitted calibration",
+    )
 
 
 class SystemOneRequest(BaseModel):
@@ -131,6 +135,11 @@ class SystemOneRequest(BaseModel):
 
     @model_validator(mode="after")
     def _constraints_reference_nouls(self) -> SystemOneRequest:
+        for qid in self.moelars.features:
+            if qid not in self.questions:
+                raise ValueError(f"features reference unknown question {qid!r}")
+            if self.questions[qid].type != "noul":
+                raise ValueError(f"features question {qid!r} must be a noul")
         for constraint in self.moelars.constraints:
             for qid in constraint.questions:
                 if qid not in self.questions:

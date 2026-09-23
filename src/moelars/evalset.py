@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from moelars.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
+from moelars.calibration import Calibrator, brier, coverage_at_error, ece, fit_fusion, fit_platt, fit_temperature
 from moelars.engine import Engine
 from moelars.primitives import softmax
 from moelars.schema import SystemOneRequest
@@ -29,6 +29,8 @@ class Example:
     question: dict[str, Any]
     label: str
     soft_label: dict[str, float] | None = None
+    # Named numeric evidence for a noul, fused with the model when a calibration is fitted with it.
+    features: dict[str, float] | None = None
 
 
 def _maybe_json(value: Any) -> Any:
@@ -53,11 +55,13 @@ def read_examples(path: str | Path) -> Iterator[Example]:
             if not isinstance(question, dict):
                 raise ValueError("question must be a JSON object")
             soft = _maybe_json(raw.get("soft_label"))
+            features = raw.get("features")
             yield Example(
                 state=_maybe_json(raw["state"]),
                 question=question,
                 label=str(raw["label"]),
                 soft_label=soft if isinstance(soft, dict) else None,
+                features={k: float(v) for k, v in features.items()} if isinstance(features, dict) else None,
             )
 
 
@@ -106,7 +110,7 @@ def evaluate(engine: Engine, examples: list[Example], rows: list[dict] | None = 
     per_kind: dict[str, list[bool]] = {}
     for example, kind, keys, logits in collected:
         if kind in {"noul", "multi"}:
-            p_yes = engine.noul_prob(float(logits[0] - logits[1]), kind)
+            p_yes = engine.noul_prob(float(logits[0] - logits[1]), kind, features=example.features)
             p = np.asarray([p_yes, 1.0 - p_yes])
         else:
             p = softmax(logits, engine.calibrator.temperature_for(kind))
@@ -160,6 +164,9 @@ def calibrate(engine: Engine, examples: list[Example], source: str | None = None
             y = np.asarray([float(t[0]) for t in targets_list])
             calibrator.platt[kind] = fit_platt(z, y)
             calibrator.temperatures[kind] = 1.0
+            evidence = [example.features for example, k, _, _ in collected if k == kind]
+            if evidence and all(evidence):
+                calibrator.fusion[kind] = fit_fusion(z, evidence, y)  # type: ignore[arg-type]
         else:
             calibrator.temperatures[kind] = fit_temperature(logits_list, targets_list)
     return calibrator
