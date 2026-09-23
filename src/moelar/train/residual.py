@@ -185,10 +185,20 @@ def train(
 
     grad_fn = nn.value_and_grad(head, step_loss)
     history = []
-    print("baseline train:", baseline(mx, train_shard), flush=True)
-    if heldout is not None:
-        print("baseline heldout:", baseline(mx, heldout), flush=True)
-    best_score, best_params = None, None
+    from mlx.utils import tree_flatten, tree_unflatten
+
+    def snapshot():
+        return tree_unflatten([(k, mx.array(v)) for k, v in tree_flatten(head.parameters())])
+
+    base_train = baseline(mx, train_shard)
+    print("baseline train:", base_train, flush=True)
+    base_heldout = baseline(mx, heldout) if heldout is not None else None
+    if base_heldout is not None:
+        print("baseline heldout:", base_heldout, flush=True)
+    # The untrained head is the backbone exactly, so it is the checkpoint to beat: an epoch is
+    # kept only if it improves on no head at all.
+    best_score = -(base_heldout or base_train)["brier"]
+    best_params = snapshot()
     for epoch in range(epochs):
         order = rng.permutation(train_shard.n)
         started, total, steps = time.perf_counter(), 0.0, 0
@@ -215,16 +225,15 @@ def train(
         # Select by held-out Brier when held-out sources exist; in-distribution gains are
         # cheap, generalization is what we are buying.
         score = -metrics["heldout"]["brier"] if heldout is not None else -metrics["train"]["brier"]
-        if best_score is None or score > best_score:
-            from mlx.utils import tree_flatten, tree_unflatten
-
+        if score > best_score:
             best_score = score
-            best_params = tree_unflatten([(k, mx.array(v)) for k, v in tree_flatten(head.parameters())])
+            best_params = snapshot()
             metrics["selected"] = True
         history.append(metrics)
         print(json.dumps(metrics), flush=True)
-    if best_params is not None:
-        head.update(best_params)
+    if not any(entry.get("selected") for entry in history):
+        print("no epoch beat the backbone alone; saving the untrained head (identity)", flush=True)
+    head.update(best_params)
     if out:
         save_head(head, out, history)
     return head, history

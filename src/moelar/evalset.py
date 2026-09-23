@@ -97,7 +97,8 @@ def collect(engine: Engine, examples: list[Example]) -> list[tuple[Example, str,
     return rows
 
 
-def evaluate(engine: Engine, examples: list[Example]) -> EvalResult:
+def evaluate(engine: Engine, examples: list[Example], rows: list[dict] | None = None) -> EvalResult:
+    """Score examples; when `rows` is given, append each example's probabilities and hit to it in input order."""
     started = time.perf_counter()
     collected = collect(engine, examples)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -120,6 +121,8 @@ def evaluate(engine: Engine, examples: list[Example]) -> EvalResult:
         probs.append(p)
         targets.append(target)
         per_kind.setdefault(kind, []).append(hit)
+        if rows is not None:
+            rows.append({"keys": list(keys), "p": p.tolist(), "target": target.tolist(), "hit": bool(hit)})
     conf = np.asarray(confidences)
     hits = np.asarray(correct, dtype=float)
     cov, thr = coverage_at_error(conf, hits, 0.05)

@@ -1,55 +1,50 @@
-# Handoff, 2026-09-22 afternoon
+# Handoff, 2026-09-22 evening
 
-Everything below is committed. Nothing of ours is running; the GPU was lent to another job
-at 13:25. `origin` is `git@github.com:moedex/moelar.git`; this batch is not pushed yet.
+Everything below is committed. Nothing of ours is running.
+`origin` is `git@github.com:moedex/moelar.git`.
 
 ## State in one paragraph
 
 MoeLAR serves the System One wire shape from a local model with no text generation. On
-jev-bench (22 configs, 200 test rows each, per-config calibration on every side), Qwen3-4B
-Tier A is 0.662 macro accuracy, 4B plus pointer head v2 is **0.689**, Jev's published run is
-0.733. Our ECE is 0.073 against Jev's 0.113. The head's gain is all on question forms its
-training corpus covers; held-out sources are flat. A Qwen3.5-9B Tier A run, stopped after
-11 configs, added about 2 points over the 4B at two to three times the cost per row, so
-dense scale is not the default path. Full tables and readings: `evals/RESULTS.md`.
+jev-bench (22 configs, 200 test rows each, per-config calibration on every side),
+Qwen3-4B-Instruct with a LoRA adapter trained through the label readout reaches **0.731**
+macro accuracy against Jev's published 0.733, with better Brier (0.317 against 0.349)
+and ECE (0.077 against 0.113). The gain is on question forms the training corpus covers;
+held-out forms are flat except stsb, which the adapter breaks. Qwen3-30B-A3B zero-shot is
+0.680 and strongest exactly where the adapted 4B is weakest. Full tables and readings:
+`evals/RESULTS.md`, newest section last.
 
 ## What happened in this batch
 
-- Head v2 on the full clean corpus (14,285 records): +2.7 macro over Tier A (v1: +1.8),
-  mostly high-K routing. Artifacts `evals/results/tier-b-qwen3-4b-v2.*`.
-- Qwen3.5 backend bug fixed: `ArraysCache` snapshots were aliased, so each restored row
-  mutated the prefix snapshot for the next. Tested with the real mlx-lm cache classes.
-- 9B suite stopped by hand at 11 of 22 configs (`evals/results/qwen3-5-9b-mlx-4bit.*`).
-  `run_suite.py` skips configs already in its result file, so rerunning the same command
-  resumes at config 12 if the full 9B number is ever wanted.
-- 9B feature extraction and head were cut. `mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit`
-  (MoE, about 3B active, 17 GB) is downloaded as the cascade target or larger backbone.
-- Smoke check restructured: a strict check that restoring the snapshot equals prefill then
-  suffix on one cache (isolates cache bugs), plus a split-versus-full check whose bound is
-  two bf16 steps at the logits' magnitude. The 30B failed the old fixed 0.15 bound at
-  0.375 on logits near 35 (bf16 step 0.25); it has not been rerun under the new check.
-- **LoRA through the label readout** (`moelar.train.lora`), the half of Tier B that
-  `DESIGN.md` specifies and we had not built. Cross-entropy plus Brier on the K label
-  logits at the answer position, options reshuffled per epoch, sources held out with the
-  same sampling as `extract`, best held-out Brier checkpoint saved in mlx-lm's adapter
-  format. `--adapter` works on serve, eval, calibrate, the suite, and extraction. Unit
-  tested on a tiny random Qwen3; **never run on a real model yet**.
+- `scripts/queue_lora.sh` ran end to end (14:50 to 20:20): 30B smoke passes under the new
+  check; LoRA on the full corpus (113 minutes, about 27 GB peak); suite with the adapter
+  (0.731); features and head on the adapted model (the head adds nothing, 0.729); 30B-A3B
+  Tier A suite (0.680).
+- `moelar.train.residual` now keeps the untrained head (the backbone exactly) as the
+  checkpoint to beat. Before, it always saved some epoch, even one worse than no head.
+- `evals/run_suite.py --dump-rows` writes calibrated per-row probabilities for test and
+  validation; `evals/cascade.py` simulates an `escalate_to` cascade from two such dumps,
+  with one confidence floor chosen on validation and applied to test. **Not run on real
+  models yet**: it needs both suites rerun with `--dump-rows`.
+- The adapter was fused with `mlx_lm.fuse` two ways, 4-bit re-quantized
+  (`checkpoints/lora-4b-fused-q4`, 2.1 GB) and bf16 (`checkpoints/lora-4b-fused-bf16`,
+  7.5 GB), and checked against the unfused adapter on 7 configs. bf16 matches the
+  adapter and runs 25 to 40 percent faster; 4-bit loses about half of the adapter's gain
+  and should not be served. Neither fused model is committed; both regenerate in a minute.
+  `mlx_lm.fuse` needs the local snapshot path as `--model` (the hub cache is incomplete
+  and the environment is offline).
 
-## Next: run `scripts/queue_lora.sh` when the GPU is free
+## Next
 
-```bash
-cd ~/Code/moeLAR && nohup scripts/queue_lora.sh > logs/queue_lora.log 2>&1 &
-```
-
-Order: 30B smoke under the new check; a 400-record LoRA probe (read its log for steps per
-minute and whether memory is sane before trusting the full run's duration); LoRA on the
-full corpus; suite with the adapter alone; features, head, and suite for adapter plus head;
-then the 30B-A3B Tier A suite. The jev-bench maintainers' LoRA plus residual head on the
-same 4B reaches 0.747, above Jev; that is the number to compare against.
-
-Still to do after that: Molar Triage numbers (`scripts/queue_30b.sh` has the loop; the
-`<!-- MOLAR_NUMBERS -->` placeholder in `examples/molar_triage/README.md`), and
-`scripts/load_cost.py` for 4B, 9B, and 30B on a quiet machine.
+1. **Cascade numbers.** Rerun the adapted 4B (`checkpoints/lora-4b-fused-bf16`) and the
+   30B-A3B suites with `--dump-rows --tag rows` (about an hour and 1.5 hours with the
+   extra validation pass), then `evals/cascade.py <4B rows dir> <30B rows dir>`.
+2. **stsb under LoRA** (0.395 to 0.235): ordinal-aware loss for score tasks, more score
+   sources in `moelar.train.build`, or a gentler adapter. Must be understood before LoRA
+   is the default.
+3. Molar Triage numbers (`scripts/queue_30b.sh` has the loop; the `<!-- MOLAR_NUMBERS -->`
+   placeholder in `examples/molar_triage/README.md`) and `scripts/load_cost.py` for 4B,
+   4B fused bf16, and 30B on a quiet machine.
 
 ## Things to know
 
@@ -59,20 +54,23 @@ Still to do after that: Molar Triage numbers (`scripts/queue_30b.sh` has the loo
 - HF cache weights sit behind symlinks into xet blob folders; `du` on a model directory
   shows megabytes. Use `ls -laL snapshots/*/`.
 - LoRA's `scale` multiplies every update; on a toy model lr 1e-2 oscillated and 3e-3
-  converged. The default is 2e-5 at scale 20.
-- chaosnli borrows mnli's calibrator (no validation split).
-- civil_comments' calibrated 0.930 is the majority baseline and is 1.8 of the 3.2 macro
-  points where MoeLAR beats Jev; the headline flatters us by about that much.
+  converged. The default is 2e-5 at scale 20. The adapter (`checkpoints/lora-4b`, 66 MB)
+  is not committed; its history and config are in `evals/results/lora-4b.*`.
+- chaosnli borrows mnli's calibrator (no validation split); under LoRA it fell 4.5 points,
+  possibly from the borrowed temperature.
+- civil_comments' calibrated 0.930 is the majority baseline and is worth about 1.8 macro
+  points wherever MoeLAR leads; the headline flatters us by about that much.
+- The 30B scores 0.110 on helpsteer2_verbosity (all mass on one end of the scale);
+  calibration cannot fix an argmax. Not investigated.
 - Data policy is unchanged: no Jev-labeled data, no calls to the hosted API, Jev numbers
   quoted only from jev-bench's published run. See `DESIGN.md` section 8.
 
 ## Open ideas, not started
 
-- `escalate_to` cascade: answer on the 4B, send low-confidence rows to the 30B-A3B. Our
-  calibration is what makes the confidence floor meaningful.
+- Gate the pointer head on K: on LoRA it helps high-K routing and hurts elsewhere. Read
+  off test, so check on held-out data first.
 - Shortlist-then-rerank for high-K configs (banking77, clinc150, massive, ledgar).
 - Complement-consistency loss needs negated noul pairs generated in `moelar.train.build`.
-- Ordinal-aware loss for score tasks, which neither head moved.
 - llama.cpp backend still needs a hardware pass.
 - Rename to moe-LARS (`moelars` in code), agreed with the user but deferred until they
   say go; the spec is in the assistant's project memory.

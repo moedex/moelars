@@ -65,3 +65,11 @@ def test_training_improves_on_backbone(tmp_path):
     _, history = train(shard, None, rank=8, epochs=6, batch_size=32, lr=5e-3, perm_weight=0.0)
     after = history[-1]["train"]["acc"]
     assert after > before + 0.15, (before, after)
+
+
+def test_selection_keeps_the_backbone_when_no_epoch_beats_it(tmp_path):
+    """With lr 0 every epoch equals the untrained head, so nothing is selected and the saved head is the identity."""
+    shard = _synthetic_shard(tmp_path)
+    head, history = train(shard, shard, rank=8, epochs=2, batch_size=32, lr=0.0, perm_weight=0.0)
+    assert not any(entry.get("selected") for entry in history)
+    assert evaluate(mx, head, shard) == baseline(mx, shard)

@@ -119,6 +119,9 @@ def main() -> int:
     parser.add_argument("--projection", default=None, help="projection.npy that the head was trained with")
     parser.add_argument("--tag", default=None, help="suffix for the result and calibrator files, e.g. 'head'")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--dump-rows", action="store_true",
+                        help="also write calibrated per-row probabilities for test and validation to "
+                             "<out-dir>/rows/<slug>/<config>.json (costs one more validation pass)")
     args = parser.parse_args()
 
     slug = slugify(args.model) + (f"-{args.tag}" if args.tag else "")
@@ -173,7 +176,17 @@ def main() -> int:
         if calibrator is not None:
             calibrators[cfg] = calibrator
             calibrator.save(Path(args.calibration_dir) / f"{cfg}.{slug}.json")
-        calibrated = evaluate(engine(calibrator), test) if calibrator else None
+        test_rows: list[dict] | None = [] if args.dump_rows else None
+        calibrated = evaluate(engine(calibrator), test, rows=test_rows) if calibrator else None
+        if args.dump_rows:
+            if calibrated is None:
+                evaluate(engine(), test, rows=test_rows)
+            val_rows: list[dict] = []
+            if val_path.exists() and val_path.stat().st_size > 0:
+                evaluate(engine(calibrator), list(read_examples(val_path))[: args.rows], rows=val_rows)
+            rows_path = Path(args.out_dir) / "rows" / slug / f"{cfg}.json"
+            rows_path.parent.mkdir(parents=True, exist_ok=True)
+            rows_path.write_text(json.dumps({"test": test_rows, "validation": val_rows}))
 
         first_question = test[0].question
         k = len(first_question.get("criteria") or []) if first_question["type"] != "noul" else 2

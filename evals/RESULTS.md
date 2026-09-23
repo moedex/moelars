@@ -305,3 +305,100 @@ hands out the internal list and whose setter adopts the list it is given; the la
 then write through `cache[i] = ...`. Restoring a prefix snapshot for one row therefore
 changed the snapshot for the next. Snapshots and restores now copy the list, and a unit
 test with the real mlx-lm cache classes pins it.
+
+## 2026-09-22: LoRA on the 4B, LoRA plus head, and Qwen3-30B-A3B Tier A
+
+Three runs from `scripts/queue_lora.sh`, all with per-config calibration:
+
+- **LoRA** (`moelar.train.lora`): rank 8, scale 20, every layer, lr 2e-5 with warmup and
+  cosine decay, one epoch over the same 14,285-record corpus and held-out split as head
+  v2 (1,095 steps, 113 minutes, about 27 GB peak). Loss is cross-entropy plus Brier on
+  the K label logits at the answer position, with options reshuffled per presentation.
+  Held-out Brier went 0.707 to 0.479 and held-out accuracy 0.590 to 0.606; the final step
+  was the best checkpoint. Training history and adapter config:
+  `evals/results/lora-4b.{history,adapter_config}.json`. The adapter itself (66 MB) is
+  not committed.
+- **LoRA plus head**: features re-extracted through the adapter, a pointer head trained
+  on them with the head v2 recipe.
+- **Qwen3-30B-A3B-Instruct-2507 4-bit** zero-shot (MoE, about 3B active parameters,
+  18 GB peak).
+
+| scope | n | 4B Tier A | 4B + head v2 | 4B + LoRA | 4B + LoRA + head | 30B-A3B | Jev |
+|---|---|---|---|---|---|---|---|
+| accuracy, all | 22 | 0.662 | 0.689 | **0.731** | 0.729 | 0.680 | 0.733 |
+| accuracy, choice | 9 | 0.657 | 0.701 | **0.757** | **0.757** | 0.706 | 0.770 |
+| accuracy, score | 6 | 0.466 | 0.484 | **0.520** | 0.513 | 0.416 | 0.503 |
+| accuracy, noul | 7 | 0.837 | 0.849 | **0.878** | 0.877 | 0.873 | 0.881 |
+| accuracy, sources trained on | 16 | 0.668 | 0.708 | **0.775** | **0.775** | 0.691 | |
+| accuracy, sources held out | 5 | 0.639 | 0.628 | 0.607 | 0.605 | **0.649** | |
+| held out, without stsb | 4 | 0.700 | 0.690 | 0.700 | 0.701 | **0.705** | |
+| ECE, all | 22 | 0.088 | **0.073** | 0.077 | **0.073** | 0.079 | 0.113 |
+| Brier, all | 22 | 0.404 | 0.372 | **0.317** | 0.318 | 0.372 | 0.349 |
+
+Per-config tables: `evals/results/qwen3-4b-instruct-2507-4bit-{lora,lora-head}.md` and
+`qwen3-30b-a3b-instruct-2507-4bit.md`.
+
+### Reading
+
+- **LoRA ties Jev on macro accuracy (0.731 against 0.733) and beats it on Brier (0.317
+  against 0.349) and ECE (0.077 against 0.113).** It is +4.2 over head v2 and +6.9 over
+  Tier A. The civil_comments caveat above still applies: that config is the majority
+  baseline and is worth about 1.8 macro points of MoeLAR's lead where it leads.
+- **The gain is on question forms the corpus covers**: seen sources 0.775 against 0.668
+  for Tier A. Largest moves: measuring_hate_speech +36, go_emotions +23, clinc150 +16.5,
+  massive +15, banking77 +12.5, ledgar +11, mnli +10.
+- **Held-out sources are flat except stsb.** Four of the five held-out sources average
+  0.700 under LoRA, the same as Tier A. stsb falls from 0.395 to 0.235 and its fitted
+  temperature from 6.9 to 2.6: the adapter makes the model confident on a 6-level
+  similarity scale it never saw, in the wrong places. This is the one regression that
+  matters before LoRA becomes a default, and the reason the next training change is on
+  score tasks (ordinal-aware loss, more score sources), not more epochs.
+- **chaosnli falls 0.685 to 0.640.** It borrows mnli's calibrator, and mnli moved most
+  under the adapter, so some of this may be the borrowed temperature. Not separated yet.
+- **A head on top of LoRA adds nothing in total** (0.729). With the adapter, training
+  accuracy on the corpus is already 0.90, and no head epoch beat the adapter alone on
+  held-out Brier (0.479 alone, best epoch 0.485). The head's selection loop did not
+  compare against no head at all and saved that slightly worse epoch; it now does
+  (`moelar.train.residual`, tested). By config the head still helps high-K routing
+  (massive +3.0, ledgar +4.5, mnli +2.0) and hurts elsewhere (mmlu -4.5, chaosnli -3.0),
+  which suggests gating it on K. That rule was read off test, so it is a hypothesis to
+  check on held-out data, not a result.
+- **The 30B-A3B is 0.680 zero-shot**: +1.8 over the 4B's Tier A, 5.1 behind the adapted
+  4B, and about twice as slow per row as the 4B Tier A (266 against 138 ms mean, shared
+  GPU). It is better than any 4B variant on held-out sources (0.649), on knowledge
+  (mmlu 0.780 against 0.690 for LoRA, arc_challenge 0.950 against 0.935), and on stsb
+  (0.425 against 0.235). Those are the adapted 4B's weak spots, so the two are
+  complementary, which is the case for an `escalate_to` cascade with the 4B plus LoRA as
+  the primary.
+- **30B helpsteer2_verbosity is 0.110.** Calibration cannot help (0.110 raw and
+  calibrated, raw ECE 0.816): the model puts nearly all its mass on one end of the
+  scale. At a plausible 0.6 it would be about 2 macro points higher. Not investigated.
+- **Latency** for these runs was measured with another job on the GPU. LoRA rows were
+  also slower than Tier A because the adapter was applied unfused; see the fused check
+  below.
+
+### Fusing the adapter
+
+`mlx_lm.fuse` two ways, each run on 7 configs with the suite's own per-config
+calibration and compared with the unfused adapter above (accuracy, calibrated):
+
+| config | 4B Tier A | unfused LoRA | fused, bf16 | fused, 4-bit |
+|---|---|---|---|---|
+| banking77 | 0.665 | 0.790 | 0.785 | 0.705 |
+| mnli | 0.725 | 0.825 | 0.820 | 0.745 |
+| stsb | 0.395 | 0.235 | 0.235 | 0.340 |
+| sst5 | 0.475 | 0.510 | 0.510 | 0.495 |
+| boolq | 0.890 | 0.910 | 0.910 | 0.895 |
+| mmlu | 0.670 | 0.690 | 0.700 | 0.670 |
+| helpsteer2_verbosity | 0.585 | 0.675 | 0.675 | 0.665 |
+| mean of these 7 | 0.629 | 0.662 | 0.662 | 0.645 |
+
+- **bf16 fusion is faithful**: same mean accuracy, Brier within 0.001 on every config,
+  and 25 to 40 percent less time per row than the unfused adapter on the same shared GPU
+  (for example mnli 116 against 150 ms, stsb 115 against 195). The cost is size: 7.5 GB
+  on disk against 2.1 GB for the 4-bit base plus a 66 MB adapter.
+- **4-bit fusion loses about half the adapter.** Re-quantizing after adding the update
+  rounds most of it away: banking77 falls back 8.5 of the adapter's 12.5 points, and stsb
+  recovers toward Tier A for the same reason. Do not serve a re-quantized fused model;
+  training the adapter against quantization (or DWQ-style distillation into the 4-bit
+  weights) would be needed first.
