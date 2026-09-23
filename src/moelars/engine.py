@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from moelars.backends.base import Backend
-from moelars.calibration import Calibrator
+from moelars.calibration import Calibrator, fused_probability
 from moelars.heads import PointerHeadScorer
 from moelars.labels import assign_labels
 from moelars.primitives import (
@@ -152,7 +152,7 @@ class Engine:
             ablations = [s for s in items if s.row.variant.startswith("ablate:")]
 
             if question.type == "noul":
-                p_yes = self.noul_prob(self._yes_logit(base[0]))
+                p_yes = self.noul_prob(self._yes_logit(base[0]), features=options.features.get(qid))
                 answer: Answer = NoulAnswer(noul=round(p_yes, 4))
                 if options.abstain_margin is not None:
                     answer.abstain = abs(p_yes - 0.5) * 2 < options.abstain_margin
@@ -220,12 +220,16 @@ class Engine:
         """Raw yes-minus-no logit for a two-label row."""
         return float(item.logits[0] - item.logits[1])
 
-    def noul_prob(self, yes_logit: float, kind: str = "noul") -> float:
+    def noul_prob(self, yes_logit: float, kind: str = "noul", features: dict[str, float] | None = None) -> float:
         """P(yes) from the raw yes-minus-no logit.
 
-        A fitted Platt pair (a, b) gives sigmoid(a * z + b). Without one, the kind's
-        temperature applies: sigmoid(z / T). Temperature is the special case a = 1/T, b = 0.
+        With caller evidence and a fusion fitted on the same feature names, P(yes) is the
+        fused logistic. Otherwise a fitted Platt pair (a, b) gives sigmoid(a * z + b), or the
+        kind's temperature applies: sigmoid(z / T), the special case a = 1/T, b = 0.
         """
+        fusion = self.calibrator.fusion_for(kind, features)
+        if fusion is not None:
+            return fused_probability(fusion, yes_logit, features or {})
         platt = self.calibrator.platt_for(kind)
         if platt is None:
             return sigmoid(yes_logit / self.calibrator.temperature_for(kind))

@@ -91,3 +91,15 @@ def test_empty_prefix_skips_the_prefill():
     (z,) = backend.label_logits("", ["xy"], [("A", "B")])
     assert calls == [2]
     assert np.allclose(z, [ord("A"), ord("B")])
+
+
+def test_backend_caps_the_mlx_buffer_cache(monkeypatch):
+    # Regression: an uncapped buffer cache grew to about 100 GB over a run of varied prompts.
+    limits = []
+    monkeypatch.setattr(mx, "set_cache_limit", lambda value: limits.append(value) or 0)
+    monkeypatch.setenv("MOELARS_MLX_CACHE_GB", "2")
+    import moelars.backends.mlx as backend_module
+
+    monkeypatch.setattr("mlx_lm.load", lambda *args, **kwargs: (object(), type("T", (), {"chat_template": None})()))
+    backend_module.MLXBackend("unused")
+    assert limits == [2 * 2**30]

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -28,6 +29,8 @@ KINDS = ("noul", "choice", "score", "multi")
 class Calibrator:
     temperatures: dict[str, float] = field(default_factory=lambda: dict.fromkeys(KINDS, 1.0))
     platt: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # Evidence fusion per kind: sigmoid(weights . [logit, *features] + bias), fitted by `fit_fusion`.
+    fusion: dict[str, dict[str, Any]] = field(default_factory=dict)
     fitted_on: str | None = None
 
     def temperature_for(self, kind: str) -> float:
@@ -37,6 +40,13 @@ class Calibrator:
         value = self.platt.get(kind)
         return (float(value[0]), float(value[1])) if value else None
 
+    def fusion_for(self, kind: str, features: dict[str, float] | None) -> dict[str, Any] | None:
+        """The fitted fusion for this kind when every feature it was fitted on is supplied."""
+        spec = self.fusion.get(kind)
+        if not spec or not features or any(name not in features for name in spec["features"]):
+            return None
+        return spec
+
     def save(self, path: str | Path) -> None:
         Path(path).write_text(json.dumps(asdict(self), indent=2))
 
@@ -44,7 +54,12 @@ class Calibrator:
     def load(cls, path: str | Path) -> Calibrator:
         raw = json.loads(Path(path).read_text())
         platt = {k: (float(v[0]), float(v[1])) for k, v in raw.get("platt", {}).items()}
-        return cls(temperatures=raw.get("temperatures", {}), platt=platt, fitted_on=raw.get("fitted_on"))
+        return cls(
+            temperatures=raw.get("temperatures", {}),
+            platt=platt,
+            fusion=raw.get("fusion", {}),
+            fitted_on=raw.get("fitted_on"),
+        )
 
 
 # --------------------------------------------------------------------------- fitting
@@ -119,6 +134,67 @@ def fit_platt(scores: np.ndarray, labels: np.ndarray, l2: float = 1e-2, iteratio
         if not improved or (abs(step * da) < 1e-9 and abs(step * db) < 1e-9):
             break
     return float(a / scale), float(b)
+
+
+def fit_logistic(
+    x: np.ndarray, labels: np.ndarray, l2: float = 1e-2, iterations: int = 100
+) -> tuple[np.ndarray, float]:
+    """Fit sigmoid(x @ w + b) to binary labels with a damped, L2-penalized Newton method.
+
+    Columns are standardized before fitting, as in `fit_platt`, and the returned weights
+    are mapped back to the raw scale. Platt's label smoothing keeps separable data finite.
+    """
+    x_raw = np.asarray(x, dtype=np.float64)
+    y_raw = np.asarray(labels, dtype=np.float64)
+    if x_raw.ndim != 2 or x_raw.shape[0] == 0:
+        return np.zeros(x_raw.shape[1] if x_raw.ndim == 2 else 0), 0.0
+    mean = x_raw.mean(axis=0)
+    scale = x_raw.std(axis=0)
+    scale[scale == 0] = 1.0
+    design = np.hstack([(x_raw - mean) / scale, np.ones((x_raw.shape[0], 1))])
+    n_pos, n_neg = float(y_raw.sum()), float((1 - y_raw).sum())
+    y = np.where(y_raw > 0.5, (n_pos + 1) / (n_pos + 2), 1 / (n_neg + 2)) if n_pos and n_neg else y_raw
+    penalty = np.full(design.shape[1], l2)
+    penalty[-1] = 0.0  # the intercept is not penalized
+
+    def loss(theta: np.ndarray) -> float:
+        return _logistic_loss(design @ theta, y) + 0.5 * float((penalty * theta * theta).sum())
+
+    theta = np.zeros(design.shape[1])
+    current = loss(theta)
+    for _ in range(iterations):
+        p = 1.0 / (1.0 + np.exp(-np.clip(design @ theta, -500, 500)))
+        grad = design.T @ (p - y) + penalty * theta
+        hessian = (design * (p * (1 - p) + 1e-12)[:, None]).T @ design + np.diag(penalty + 1e-9)
+        delta = np.linalg.solve(hessian, grad)
+        step, improved = 1.0, False
+        for _ in range(30):
+            candidate = loss(theta - step * delta)
+            if candidate < current:
+                theta, current, improved = theta - step * delta, candidate, True
+                break
+            step *= 0.5
+        if not improved or float(np.abs(step * delta).max()) < 1e-9:
+            break
+    weights = theta[:-1] / scale
+    bias = float(theta[-1] - (weights * mean).sum())
+    return weights, bias
+
+
+def fit_fusion(
+    logits: np.ndarray, features: list[dict[str, float]], labels: np.ndarray, l2: float = 1e-2
+) -> dict[str, Any]:
+    """Logistic fusion of the model's yes-minus-no logit with caller-supplied numeric evidence."""
+    names = sorted(set.intersection(*(set(f) for f in features))) if features else []
+    x = np.column_stack([np.asarray(logits, dtype=np.float64), *[[float(f[n]) for f in features] for n in names]])
+    weights, bias = fit_logistic(x, labels, l2=l2)
+    return {"features": names, "weights": [float(w) for w in weights], "bias": bias}
+
+
+def fused_probability(spec: dict[str, Any], logit: float, features: dict[str, float]) -> float:
+    evidence = zip(spec["weights"][1:], spec["features"], strict=True)
+    z = spec["weights"][0] * logit + sum(w * float(features[n]) for w, n in evidence)
+    return float(1.0 / (1.0 + np.exp(-np.clip(z + spec["bias"], -500, 500))))
 
 
 # --------------------------------------------------------------------------- metrics
