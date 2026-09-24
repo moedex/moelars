@@ -1,6 +1,11 @@
 """Model load time, peak memory, and warm latency for one three-question request, per model.
 
     uv run python scripts/load_cost.py mlx-community/Qwen3-4B-Instruct-2507-4bit mlx-community/Qwen3.5-9B-MLX-4bit
+
+`MODEL@ADAPTER` loads a LoRA adapter directory on top, unfused:
+
+    uv run python scripts/load_cost.py mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit \
+        mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@checkpoints/lora-30b
 """
 
 import gc
@@ -31,9 +36,10 @@ REQUEST = SystemOneRequest(
 def main() -> int:
     out = {}
     for model in sys.argv[1:]:
+        path, _, adapter = model.partition("@")
         mx.reset_peak_memory()
         started = time.perf_counter()
-        engine = Engine(MLXBackend(model))
+        engine = Engine(MLXBackend(path, adapter=adapter or None))
         load_s = time.perf_counter() - started
         engine.evaluate(REQUEST)  # warm-up
         started, n = time.perf_counter(), 20
