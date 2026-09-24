@@ -1,8 +1,11 @@
 """Simulate an `escalate_to` cascade offline from two suites' per-row dumps.
 
-Both suites must have been run with `--dump-rows` on the same data and `--rows`, so row i is
-the same example in each. A row is escalated when the primary's calibrated top probability
-is below a floor. Policies differ in what an escalated row answers with:
+Both suites must have been run with `--dump-rows` on the same data and `--rows`, so row i
+is the same example in each. Rows carry an example ID (a content hash) that must match;
+dumps written before IDs existed are checked by target only, with a warning.
+
+A row is escalated when the primary's calibrated top probability is below a floor.
+Policies differ in what an escalated row answers with:
 
 - `switch`: the fallback's probabilities.
 - `blend`: the mean of both models' probabilities.
@@ -43,6 +46,8 @@ def combine(primary: list[dict], fallback: list[dict], floor: float, mode: str) 
         raise ValueError(f"row counts differ: {len(primary)} vs {len(fallback)}")
     hits, briers, escalated = [], [], 0
     for a, b in zip(primary, fallback, strict=True):
+        if "id" in a and "id" in b and a["id"] != b["id"]:
+            raise ValueError(f"rows are not aligned: example {a['id']} against {b['id']}")
         if a["target"] != b["target"]:
             raise ValueError("rows are not aligned: targets differ")
         target, pa, pb = np.asarray(a["target"]), np.asarray(a["p"]), np.asarray(b["p"])
@@ -91,6 +96,11 @@ def main() -> int:
     args = parser.parse_args()
     primary, fallback = load(args.primary), load(args.fallback)
     configs = sorted(set(primary) & set(fallback))
+    unchecked = [c for c in configs for side in (primary, fallback)
+                 if any("id" not in row for split in side[c].values() for row in split)]
+    if unchecked:
+        print(f"warning: rows without example IDs in {sorted(set(unchecked))}; aligned by target only",
+              file=sys.stderr)
     kinds: dict[str, str] = {}
     if args.suite:
         suite = json.loads(args.suite.read_text())["configs"]

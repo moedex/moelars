@@ -65,3 +65,80 @@ def test_auth_when_key_configured(monkeypatch):
     ok = client.post("/v1/systemone", json=BODY, headers={"Authorization": "Bearer secret"})
     assert ok.status_code == 200
     assert client.get("/healthz").status_code == 200
+
+
+def test_request_over_the_row_budget_is_refused_before_inference(monkeypatch):
+    monkeypatch.delenv("MOELARS_API_KEY", raising=False)
+    engine = Engine(MockBackend(), max_rows=4)
+    engine._score = lambda *a: pytest.fail("the model ran")  # type: ignore[method-assign]
+    body = {**BODY, "moelars": {"permutations": 4}}  # 2 base rows + 4 permutation rows
+    response = TestClient(create_app(engine)).post("/v1/systemone", json=body)
+    assert response.status_code == 422
+    assert response.json()["error_type"] == "invalid_request"
+    assert "6 model rows" in response.json()["message"]
+
+
+def test_request_over_the_token_budget_is_refused(monkeypatch):
+    monkeypatch.delenv("MOELARS_API_KEY", raising=False)
+    client = TestClient(create_app(Engine(MockBackend(), max_input_tokens=50)))
+    response = client.post("/v1/systemone", json={**BODY, "state": "word " * 200})
+    assert response.status_code == 422
+    assert "input tokens" in response.json()["message"]
+
+
+def test_body_over_the_limit_is_413_with_request_ids(monkeypatch):
+    monkeypatch.delenv("MOELARS_API_KEY", raising=False)
+    client = TestClient(create_app(Engine(MockBackend()), max_body_bytes=200))
+    response = client.post("/v1/systemone", json={**BODY, "state": "x" * 500})
+    assert response.status_code == 413
+    assert response.json()["error_type"] == "invalid_request"
+    assert response.headers["x-typesafe-request-id"] == response.headers["x-moelars-request-id"]
+
+
+def test_auth_failure_carries_the_sdk_request_id(monkeypatch):
+    monkeypatch.setenv("MOELARS_API_KEY", "secret")
+    response = TestClient(create_app(Engine(MockBackend()))).post("/v1/systemone", json=BODY)
+    assert response.status_code == 401
+    assert response.headers["x-typesafe-request-id"]
+
+
+def test_slow_inference_does_not_block_health_checks(monkeypatch):
+    """Inference runs off the event loop: /healthz answers while a request is still being scored."""
+    import threading
+    import time
+
+    import anyio
+    import httpx
+
+    monkeypatch.delenv("MOELARS_API_KEY", raising=False)
+    engine = Engine(MockBackend())
+    release = threading.Event()
+    evaluate = engine.evaluate
+
+    def slow(request):
+        release.wait(5)
+        return evaluate(request)
+
+    engine.evaluate = slow  # type: ignore[method-assign]
+    app = create_app(engine)
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            async with anyio.create_task_group() as tg:
+                results = {}
+
+                async def post():
+                    results["post"] = await client.post("/v1/systemone", json=BODY)
+
+                tg.start_soon(post)
+                await anyio.sleep(0.05)
+                started = time.perf_counter()
+                health = await client.get("/healthz")
+                results["health_s"] = time.perf_counter() - started
+                assert "post" not in results  # the slow request is still in flight
+                release.set()
+            return health, results
+
+    health, results = anyio.run(scenario)
+    assert health.status_code == 200 and results["health_s"] < 1.0
+    assert results["post"].status_code == 200

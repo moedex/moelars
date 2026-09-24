@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from moelars.backends.mock import MockBackend
 from moelars.calibration import Calibrator
@@ -67,3 +68,29 @@ def test_temperature_is_platt_special_case():
     engine_p = Engine(MockBackend(), calibrator=Calibrator(platt={"noul": (0.25, 0.0)}))
     for z in (-6.0, -1.0, 0.0, 2.5, 9.0):
         assert np.isclose(engine_t.noul_prob(z), engine_p.noul_prob(z))
+
+
+def test_row_dumps_carry_a_stable_example_id(tmp_path):
+    noul = {"type": "noul", "instructions": "Is this about money?"}
+    data = [{"state": "payout failed", "question": noul, "label": "1"},
+            {"state": "nice weather", "question": noul, "label": "0"}]
+    examples = list(read_examples(_write(tmp_path, data)))
+    rows: list[dict] = []
+    evaluate(Engine(MockBackend()), examples, rows=rows)
+    assert [r["id"] for r in rows] == [e.id for e in examples]
+    assert rows[0]["id"] != rows[1]["id"]
+    assert [e.id for e in read_examples(_write(tmp_path, data))] == [e.id for e in examples]
+
+
+def test_cascade_refuses_rows_that_are_different_examples_with_the_same_target():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("cascade", Path(__file__).parents[1] / "evals" / "cascade.py")
+    cascade = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cascade)
+    row = {"p": [0.9, 0.1], "target": [1.0, 0.0], "hit": True}
+    assert cascade.combine([{**row, "id": "a"}], [{**row, "id": "a"}], 0.5, "blend")[0] == 1.0
+    assert cascade.combine([row], [row], 0.5, "blend")[0] == 1.0  # dumps from before IDs still combine
+    with pytest.raises(ValueError, match="not aligned"):
+        cascade.combine([{**row, "id": "a"}], [{**row, "id": "b"}], 0.5, "blend")

@@ -49,6 +49,15 @@ from moelars.schema import (
 
 MODEL_ALIAS = "moelars-latest"
 MAX_EVIDENCE = 3
+# Per-request budgets, checked before any model pass. A schema-valid request can plan
+# thousands of rows (a 255-option multi question with explain=true and 24 state units is
+# 6,375), so these bound what one caller can ask of the model.
+DEFAULT_MAX_ROWS = 512
+DEFAULT_MAX_INPUT_TOKENS = 32768
+
+
+class BudgetError(ValueError):
+    """A request that would exceed the engine's row or input-token budget."""
 
 
 @dataclass
@@ -65,8 +74,13 @@ class Engine:
         calibrator: Calibrator | None = None,
         version: str = "0.0.1",
         head: PointerHeadScorer | None = None,
+        max_rows: int | None = DEFAULT_MAX_ROWS,
+        max_input_tokens: int | None = DEFAULT_MAX_INPUT_TOKENS,
     ) -> None:
+        """`max_rows` and `max_input_tokens` bound each `evaluate` call; None disables a budget."""
         self.backend = backend
+        self.max_rows = max_rows
+        self.max_input_tokens = max_input_tokens
         self.calibrator = calibrator or Calibrator()
         self.version = version
         self.head = head
@@ -92,10 +106,16 @@ class Engine:
 
     def evaluate(self, request: SystemOneRequest) -> SystemOneResponse:
         rows = plan_rows(request, self.labels)
+        if self.max_rows is not None and len(rows) > self.max_rows:
+            raise BudgetError(f"request plans {len(rows)} model rows, over the budget of {self.max_rows}; "
+                              "use fewer questions, options, permutations, or turn off explain")
+        usage = self._usage(request, rows)
+        if self.max_input_tokens is not None and usage.input_tokens > self.max_input_tokens:
+            raise BudgetError(f"request needs {usage.input_tokens} input tokens, over the budget of "
+                              f"{self.max_input_tokens}; shorten the state or turn off explain")
         scored = self._score(request, rows)
         answers = self._reduce(request, scored)
         self._apply_constraints(answers, request.moelars.constraints)
-        usage = self._usage(request, rows)
         return SystemOneResponse(model=self.model_id, answers=answers, usage=usage)
 
     def raw_logits(self, state: object, question_id: str, question: object) -> tuple[tuple[str, ...], np.ndarray]:

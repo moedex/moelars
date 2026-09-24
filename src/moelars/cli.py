@@ -9,7 +9,7 @@ import sys
 from moelars import __version__
 from moelars.backends import load_backend
 from moelars.calibration import Calibrator
-from moelars.engine import Engine
+from moelars.engine import DEFAULT_MAX_INPUT_TOKENS, DEFAULT_MAX_ROWS, Engine
 
 
 def _engine_from_args(args: argparse.Namespace) -> Engine:
@@ -20,7 +20,10 @@ def _engine_from_args(args: argparse.Namespace) -> Engine:
         from moelars.heads import PointerHeadScorer
 
         head = PointerHeadScorer.load(args.head, args.projection or str(args.head).replace(".npz", ".projection.npy"))
-    return Engine(backend, calibrator=calibrator, version=__version__, head=head)
+    budgets = {}
+    if hasattr(args, "max_rows"):  # serve only; eval and calibrate score one row per question
+        budgets = {"max_rows": args.max_rows or None, "max_input_tokens": args.max_input_tokens or None}
+    return Engine(backend, calibrator=calibrator, version=__version__, head=head, **budgets)
 
 
 def _add_backend_args(parser: argparse.ArgumentParser) -> None:
@@ -39,7 +42,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from moelars.server import create_app
 
     engine = _engine_from_args(args)
-    app = create_app(engine)
+    app = create_app(engine, max_body_bytes=args.max_body_bytes)
     print(f"moe-LARS {__version__} serving {engine.model_id} on http://{args.host}:{args.port}", file=sys.stderr)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0
@@ -79,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_backend_args(serve)
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8600)
+    serve.add_argument("--max-rows", type=int, default=DEFAULT_MAX_ROWS,
+                       help="model rows one request may plan (options x permutations x ablations); 0 for no limit")
+    serve.add_argument("--max-input-tokens", type=int, default=DEFAULT_MAX_INPUT_TOKENS,
+                       help="input tokens one request may need; 0 for no limit")
+    serve.add_argument("--max-body-bytes", type=int, default=1_000_000, help="largest request body accepted")
     serve.set_defaults(func=cmd_serve)
 
     ev = sub.add_parser("eval", help="Score a labeled JSONL set")

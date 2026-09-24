@@ -8,11 +8,15 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M1. A request can expand into thousands of model passes
 
+**Status (2026-09-24): fixed.** `Engine` refuses a request over `max_rows` (512) planned rows or `max_input_tokens` (32,768) before any model pass (422 `invalid_request`); the server refuses bodies over 1 MB by `Content-Length` (413). `moelars serve --max-rows/--max-input-tokens/--max-body-bytes`. A chunked body without `Content-Length` is still only bounded by the token budget.
+
 **Evidence:** `src/moelar/schema.py:127-130` has no upper bound on state length, question count, or aggregate option text. `src/moelar/render.py:171-210` multiplies base rows by options and evidence ablations. A schema-valid request with one 255-option `multi` question, 24 state units, and `moelar.explain=true` plans 6,375 rows.
 
 **Impact and trigger:** A client allowed to call `/v1/systemone` can tie up the model for a long time or exhaust memory with one request. The default server binds to localhost, but the CLI permits other bind addresses (`src/moelar/cli.py:80`). This is a code-path finding; it was not load-tested on a real model. **Suggested fix:** Enforce request-body, prompt-token, question, and planned-row budgets before inference, with explicit limits for evidence and multi-option expansion.
 
 ### M2. Synchronous inference blocks the HTTP event loop
+
+**Status (2026-09-24): fixed.** `/v1/systemone` runs `Engine.evaluate` on a worker thread behind a one-slot limiter, so inference is serialized over the shared model and `/healthz` answers while a request is scored (tested).
 
 **Evidence:** The `async` route at `src/moelar/server.py:73-76` calls synchronous `Engine.evaluate`; `src/moelar/engine.py:93-99,120-136` calls synchronous backend inference. In an ASGI reproduction with a 350 ms sleeping engine, a concurrent `/healthz` request completed only after the inference request (364 ms).
 
@@ -68,6 +72,8 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M11. LoRA can publish an adapter worse than its baseline
 
+**Status (2026-09-23): fixed.** The untrained adapter (identity) is saved with `"improved": false` when no checkpoint beats it; the last state goes to `<out>.last/`.
+
 **Evidence:** `src/moelar/train/lora.py:250-268` saves an improved checkpoint only when held-out Brier is strictly below the unadapted baseline. If none improves, `:292-296` saves the *last trained* adapter anyway. The training guide at `src/moelar/train/README.md:69-73` says it saves the best held-out checkpoint.
 
 **Impact and trigger:** A degrading run still leaves an adapter that later evaluation or serving can load as the selected result. This was verified by code path; MLX training was not run here. **Suggested fix:** Save or restore the initial baseline state, and distinguish an intentionally retained failed candidate from a selected adapter.
@@ -86,6 +92,8 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M14. Cascade results do not verify that paired rows are the same examples
 
+**Status (2026-09-24): fixed.** Row dumps carry `id`, a content hash of state, question, and label (`Example.id`); `evals/cascade.py` refuses rows whose IDs differ and warns on dumps without IDs. The committed dumps were backfilled, every row's target checked against `evals/data`.
+
 **Evidence:** `src/moelar/evalset.py:124-125` dumps probabilities, target, and hit but no example ID. `evals/cascade.py:33-36` accepts pairs if lengths and target vectors match. Reordered or replaced examples with the same target, common in binary tasks, therefore pass the check.
 
 **Impact and trigger:** Combining dumps made from different row orders or dataset revisions can silently calculate invalid cascade accuracy and escalation. The currently saved shared dumps have matching lengths, keys, and targets; actual misalignment was not established. **Suggested fix:** Store a stable example ID or content hash in each dump and require it to match before combining rows.
@@ -93,6 +101,8 @@ No Critical or High findings were verified. Findings below describe current beha
 ## Low
 
 ### L1. Authentication failures omit the SDK request ID header
+
+**Status (2026-09-24): fixed.** 401 and 413 responses carry both request ID headers.
 
 **Evidence:** `src/moelar/server.py:49-51` returns a 401 with only `x-moelar-request-id`; normal responses add `x-typesafe-request-id` at `:52-55`, and the module documents that the SDK reads it. A reproduced 401 omitted the SDK-facing header.
 

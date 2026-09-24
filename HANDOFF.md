@@ -41,9 +41,8 @@ of the 30B alone. Full tables: `evals/RESULTS.md`, newest section last.
 3. **stsb and mmlu under LoRA** regress on both models (30B: stsb 0.425 to 0.350, mmlu
    0.780 to 0.750): ordinal-aware loss for score tasks, more score sources in
    `moelars.train.build`, or a gentler adapter.
-4. Codebase review findings M1 to M10, M12 to M14 and L1: request budgets (M1) and the
-   blocking event loop (M2) matter before anyone else calls the server. M14 (example IDs
-   in row dumps) matters more now that routing is the comparison tool.
+4. Codebase review findings M3 to M10, M12 and M13 (M1, M2, M11, M14 and L1 are fixed;
+   see the status lines in `CODEBASE-REVIEW.md`).
 5. Molar Triage numbers (`scripts/queue_30b.sh` has the loop; the `<!-- MOLAR_NUMBERS -->`
    placeholder in `examples/molar_triage/README.md`).
 

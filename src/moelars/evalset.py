@@ -8,6 +8,7 @@ string for score, and "0" or "1" for noul.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections.abc import Iterator
@@ -31,6 +32,12 @@ class Example:
     soft_label: dict[str, float] | None = None
     # Named numeric evidence for a noul, fused with the model when a calibration is fitted with it.
     features: dict[str, float] | None = None
+
+    @property
+    def id(self) -> str:
+        """A stable content hash, so per-row dumps from two runs can be checked for alignment."""
+        blob = json.dumps([self.state, self.question, self.label], sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
 def _maybe_json(value: Any) -> Any:
@@ -126,7 +133,8 @@ def evaluate(engine: Engine, examples: list[Example], rows: list[dict] | None = 
         targets.append(target)
         per_kind.setdefault(kind, []).append(hit)
         if rows is not None:
-            rows.append({"keys": list(keys), "p": p.tolist(), "target": target.tolist(), "hit": bool(hit)})
+            rows.append({"id": example.id, "keys": list(keys), "p": p.tolist(), "target": target.tolist(),
+                         "hit": bool(hit)})
     conf = np.asarray(confidences)
     hits = np.asarray(correct, dtype=float)
     cov, thr = coverage_at_error(conf, hits, 0.05)
