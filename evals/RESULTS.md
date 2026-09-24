@@ -522,3 +522,72 @@ With 128 GB, adapting every expert no longer swaps: a full epoch would be about 
 Its 31-step held-out edge (Brier 0.396 against 0.437) is on 55 rows and one seed, so it is
 a reason to run it, not a result. (The attention probe's end point differs from the 64 GB
 machine's, 0.417, with the same seed; MLX training is not bit-reproducible across hardware.)
+
+## 2026-09-24: attention-plus-experts LoRA on the 30B-A3B
+
+Same corpus, split, seed and defaults as the attention-only run above, `--keys attn+experts`:
+422M trainable parameters (attention plus every expert's gate, up and down projections;
+the router is never adapted). 1095 steps in 169 minutes (6.5 steps/min, faster than the
+probe's 4.0 once warm), 92.9 GB peak, no swapping. `scripts/queue_30b_experts_lora.sh`;
+history and config in `evals/results/lora-30b-experts.{history,adapter_config}.json`.
+
+| held-out (1600 rows) | step 0 | 500 | **1000 (selected)** | 1095 |
+|---|---|---|---|---|
+| acc | 0.583 | 0.597 | 0.620 | 0.619 |
+| Brier | 0.742 | 0.491 | **0.458** | 0.459 |
+| ECE | 0.354 | 0.091 | 0.093 | 0.095 |
+
+Held-out it is level with attention only (Brier 0.454, acc 0.635 at step 1000). The
+31-step probe's edge did not survive a full epoch.
+
+**Suite: 0.751 macro accuracy, Brier 0.286, ECE 0.072**
+(`evals/results/qwen3-30b-a3b-instruct-2507-4bit-lora-experts-rows.md`, adapter unfused,
+20.4 GB peak), against 0.752 / 0.295 / 0.060 for attention only. Same headline, a
+different profile:
+
+| scope | attn only | attn + experts |
+|---|---|---|
+| all (22) | 0.752 | 0.751 |
+| choice (9) | 0.769 | **0.783** |
+| score (6) | **0.555** | 0.523 |
+| noul (7) | 0.900 | 0.904 |
+
+| config | attn only | attn + experts |
+|---|---|---|
+| banking77 | 0.755 | **0.800** |
+| clinc150 | 0.875 | **0.920** |
+| measuring_hate_speech | 0.705 | **0.785** |
+| paws | 0.870 | **0.900** |
+| helpsteer2_helpfulness | **0.405** | 0.310 |
+| sst5 | **0.570** | 0.490 |
+| stsb | **0.350** | 0.275 |
+
+- The expert adapter gains on high-K routing (banking77, clinc150: now above Jev on both)
+  and loses on ordinal scores (sst5, helpsteer2_helpfulness, stsb; measuring_hate_speech is
+  the exception). Every other config moves by 2.5 points or less.
+- Brier is better (0.286 against 0.295), ECE slightly worse (0.072 against 0.060).
+- At 1.25 times the training time and 2.8 times the training memory, it is not a better
+  single model.
+
+**Routing, 4B + LoRA primary, 30B + experts LoRA fallback:** best validation policy is
+blend with per-kind floors, 0.754 test at 40.0% escalated; always blending is 0.756.
+Slightly below the same routing to the attention-only adapter (0.757 / 0.759), inside the
+noise.
+
+**The two 30B adapters together** (`evals/cascade.py` with the attention-only dumps as
+primary and the expert dumps as fallback):
+
+| policy | val acc | test acc | test Brier | escalated (test) |
+|---|---|---|---|---|
+| attn only alone | 0.753 | 0.752 | 0.295 | 0% |
+| attn + experts alone | 0.752 | 0.751 | 0.286 | 100% |
+| switch, global floor 0.5 | 0.755 | 0.753 | 0.293 | 18.5% |
+| blend, global floor 0.95 | 0.762 | 0.765 | 0.282 | 67.6% |
+| always blend | 0.762 | 0.765 | 0.282 | 100% |
+
+- Their errors are complementary enough that averaging them is **0.765, the best number
+  so far** (+1.3 over either alone, Brier 0.282), and it is chosen on validation (0.762
+  there too). It is still near the noise floor, so it needs a second seed or more rows
+  before it counts.
+- It costs two 30B passes per row, or one base model serving two adapters. That is a
+  serving question, not a training one, and the same `load_cost.py` run should answer it.
