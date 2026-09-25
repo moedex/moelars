@@ -1032,6 +1032,57 @@
       },
       "elapsed_s": 165.5,
       "peak_memory_gb": 18.62
+    },
+    "strategyqa_grounded": {
+      "fingerprint": "9b9ec9aabaec0ab3",
+      "k": 2,
+      "raw": {
+        "count": 200,
+        "accuracy": 0.92,
+        "ece": 0.04470805492987432,
+        "brier": 0.13642787373540038,
+        "coverage_at_5pct": 0.815,
+        "threshold_at_5pct": 0.8807970779778823,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.92
+          }
+        },
+        "ms_per_example": 249.06646687508328,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": null
+        }
+      },
+      "calibrated": {
+        "count": 200,
+        "accuracy": 0.91,
+        "ece": 0.026803270839429474,
+        "brier": 0.1357685230958071,
+        "coverage_at_5pct": 0.845,
+        "threshold_at_5pct": 0.7588528213513422,
+        "per_kind": {
+          "noul": {
+            "count": 200,
+            "accuracy": 0.91
+          }
+        },
+        "ms_per_example": 204.88213207994704,
+        "temperatures": {
+          "noul": 1.0
+        },
+        "platt": {
+          "noul": [
+            0.739347712986694,
+            -0.591889615712948
+          ]
+        }
+      },
+      "elapsed_s": 157.1,
+      "peak_memory_gb": 18.62
     }
   },
   "load_s": 2.9
