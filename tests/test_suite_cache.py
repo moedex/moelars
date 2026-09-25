@@ -6,10 +6,25 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+NOUL = json.dumps({"type": "noul", "instructions": "Mentions payouts"})
+
+
+def _data(tmp_path) -> Path:
+    """Small boolq and paws splits: evals/data is fetched locally and not in the repository."""
+    data = tmp_path / "data"
+    if not data.exists():
+        data.mkdir()
+        rows = [{"state": f"message {i} about {'payouts' if i % 2 else 'weather'}", "question": NOUL,
+                 "label": str(i % 2)} for i in range(8)]
+        for cfg in ("boolq", "paws"):
+            for split in ("test", "validation"):
+                (data / f"{cfg}.{split}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return data
 
 
 def _run(tmp_path, *extra):
     cmd = [sys.executable, str(ROOT / "evals/run_suite.py"), "--backend", "mock", "--model", "mock",
+           "--data-dir", str(_data(tmp_path)),
            "--out-dir", str(tmp_path / "out"), "--calibration-dir", str(tmp_path / "cal"), *extra]
     if "--configs" not in extra:
         cmd += ["--configs", "boolq"]
