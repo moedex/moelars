@@ -23,7 +23,8 @@ from moelars.spans import char_offsets_to_token_indexes, option_end_char_offsets
 class MLXBackend(Backend):
     name = "mlx"
 
-    def __init__(self, model_path: str, template: str | None = None, adapter: str | None = None) -> None:
+    def __init__(self, model_path: str, template: str | None = None, adapter: str | list[str] | None = None) -> None:
+        """`adapter` is one LoRA adapter directory, or several to serve as an ensemble (`use_adapter`)."""
         try:
             import mlx.core as mx
             from mlx_lm import load
@@ -37,12 +38,20 @@ class MLXBackend(Backend):
         # prompt length, so those buffers rarely match and the cache grows until the OS kills the server
         # (about 100 GB after roughly 100 requests on a 128 GB machine, with 2.2 GB actually in use).
         mx.set_cache_limit(int(float(os.environ.get("MOELARS_MLX_CACHE_GB", "4")) * 2**30))
-        # A LoRA adapter from `moelars.train.lora` loads through mlx-lm's own adapter path.
-        self.model, self.tokenizer = load(model_path, adapter_path=adapter)
+        adapters = [adapter] if isinstance(adapter, str) else list(adapter or [])
+        self.adapters = None
+        if len(adapters) > 1:
+            from moelars.backends.adapters import AdapterSet
+
+            self.model, self.tokenizer = load(model_path)
+            self.adapters = AdapterSet(self.model, adapters)  # same module paths as mlx-lm load_adapters
+        else:
+            # A LoRA adapter from `moelars.train.lora` loads through mlx-lm's own adapter path.
+            self.model, self.tokenizer = load(model_path, adapter_path=adapters[0] if adapters else None)
         # Vision-language checkpoints (Qwen3.5) wrap the text stack in `language_model`;
         # everything that touches the transformer body or the output projection goes there.
         self._text = getattr(self.model, "language_model", self.model)
-        self.model_name = model_path if adapter is None else f"{model_path}+{Path(adapter).name}"
+        self.model_name = "+".join([model_path, *(Path(a).name for a in adapters)])
         self._template: TemplateFn
         if template and template in TEMPLATES:
             self._template = TEMPLATES[template]
@@ -51,6 +60,14 @@ class MLXBackend(Backend):
         else:
             self._template = TEMPLATES["chatml"]
         self._label_cache: dict[str, int | None] = {}
+
+    def use_adapter(self, index: int) -> None:
+        """Make adapter `index` of an ensemble the active one for the next passes."""
+        if self.adapters is None:
+            if index != 0:
+                raise ValueError("this backend has one adapter")
+            return
+        self.adapters.use(index)
 
     # ----------------------------------------------------------------- template + tokens
 

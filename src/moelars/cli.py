@@ -9,11 +9,11 @@ import sys
 from moelars import __version__
 from moelars.backends import load_backend
 from moelars.calibration import Calibrator
-from moelars.engine import DEFAULT_MAX_INPUT_TOKENS, DEFAULT_MAX_ROWS, Engine
+from moelars.engine import DEFAULT_MAX_INPUT_TOKENS, DEFAULT_MAX_ROWS, Engine, EnsembleEngine
 
 
 def _apply_preset(args: argparse.Namespace) -> None:
-    """Fill backend, model, adapter and calibration from `--preset`; explicit flags win."""
+    """Fill backend, model, adapters and calibrations from `--preset`; explicit flags win."""
     from moelars.presets import PRESETS
 
     name = getattr(args, "preset", None)
@@ -25,27 +25,38 @@ def _apply_preset(args: argparse.Namespace) -> None:
     if args.backend in (None, "mock"):
         args.backend = preset.backend
     args.model = args.model or preset.model
-    args.adapter = args.adapter or preset.adapter
-    args.calibration = args.calibration or preset.calibration
+    if not args.adapter:
+        args.adapter = list(preset.adapters)
+        args.calibration = args.calibration or preset.calibrations
 
 
-def _engine_from_args(args: argparse.Namespace) -> Engine:
+def _engine_from_args(args: argparse.Namespace) -> Engine | EnsembleEngine:
     from moelars.presets import resolve_adapter, resolve_calibration
 
     _apply_preset(args)
+    adapters = [resolve_adapter(a) for a in args.adapter or []]
+    calibrations = [resolve_calibration(c) for c in args.calibration or []]
+    calibrators = [Calibrator.load(c) if c else None for c in calibrations]
+    budgets = {}
+    if hasattr(args, "max_rows"):  # serve only; eval and calibrate score one row per question
+        budgets = {"max_rows": args.max_rows or None, "max_input_tokens": args.max_input_tokens or None}
     backend = load_backend(args.backend, model=args.model, template=args.template,
-                           adapter=resolve_adapter(args.adapter))
-    calibration = resolve_calibration(args.calibration)
-    calibrator = Calibrator.load(calibration) if calibration else None
+                           adapter=adapters if len(adapters) > 1 else (adapters[0] if adapters else None))
+    if len(adapters) > 1:
+        if args.head:
+            raise SystemExit("a pointer head cannot be combined with several adapters")
+        if len(calibrators) not in (0, len(adapters)):
+            raise SystemExit(f"give one --calibration per --adapter ({len(adapters)}), or none")
+        return EnsembleEngine(backend, calibrators or [None] * len(adapters), version=__version__, **budgets)
+    if len(calibrators) > 1:
+        raise SystemExit("several --calibration files need as many --adapter directories")
     head = None
     if args.head:
         from moelars.heads import PointerHeadScorer
 
         head = PointerHeadScorer.load(args.head, args.projection or str(args.head).replace(".npz", ".projection.npy"))
-    budgets = {}
-    if hasattr(args, "max_rows"):  # serve only; eval and calibrate score one row per question
-        budgets = {"max_rows": args.max_rows or None, "max_input_tokens": args.max_input_tokens or None}
-    return Engine(backend, calibrator=calibrator, version=__version__, head=head, **budgets)
+    return Engine(backend, calibrator=calibrators[0] if calibrators else None, version=__version__, head=head,
+                  **budgets)
 
 
 def _add_backend_args(parser: argparse.ArgumentParser) -> None:
@@ -53,9 +64,12 @@ def _add_backend_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--backend", default="mock", choices=["mock", "mlx", "llamacpp"])
     parser.add_argument("--model", default=None, help="Model path or Hugging Face id for the backend")
     parser.add_argument("--template", default=None, help="Chat template name: plain, chatml, gemma, llama3")
-    parser.add_argument("--calibration", default=None, help="Path to a calibrator JSON produced by `moelars calibrate`")
-    parser.add_argument("--adapter", default=None,
-                        help="LoRA adapter directory from `python -m moelars.train.lora`, or a Hugging Face repo ID")
+    parser.add_argument("--calibration", action="append", default=None,
+                        help="calibrator JSON from `moelars calibrate` (a Hub `<org>/<repo>/<file>` works too); "
+                             "repeat once per --adapter for an ensemble")
+    parser.add_argument("--adapter", action="append", default=None,
+                        help="LoRA adapter directory from `python -m moelars.train.lora`, or a Hugging Face repo ID; "
+                             "repeat to serve several adapters of one base model as an averaged ensemble")
     parser.add_argument("--head", default=None, help="Pointer head npz from `python -m moelars.train.residual`")
     parser.add_argument("--projection", default=None, help="projection.npy from feature extraction")
 

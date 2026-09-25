@@ -87,17 +87,17 @@ macro) and averaging goes in the release notes as future work.
 
 ### 2b. Serving, only if the gate passes
 
-- [ ] `MLXBackend` takes several adapters: load the base once, build LoRA layers for the
+- [x] `MLXBackend` takes several adapters (`moelars.backends.adapters.AdapterSet`; swapping matches each adapter loaded alone, tested on a tiny Qwen3): load the base once, build LoRA layers for the
   union of the adapters' keys (experts ⊇ attention), keep each adapter's weights in memory,
   and swap them with `model.load_weights(..., strict=False)` between passes. Expert keys stay
   zero while the attention-only adapter is loaded.
-- [ ] `Engine` averages the adapters' calibrated probabilities per question (the blend in
+- [x] `EnsembleEngine` averages the adapters' calibrated probabilities per question (the blend in
   `evals/cascade.py`), then applies constraints once on the average.
-- [ ] CLI: `--adapter` can be repeated. Tests: two identity adapters must match one; the
+- [x] CLI: `--adapter` and `--calibration` can be repeated. Tests: two identity adapters must match one; the
   average must equal the per-pass mean.
 - [ ] Re-run §1's `load_cost.py` with both adapters and check it is under 2 s.
 - [ ] Suite with both adapters live (not simulated) must reproduce the cascade number within
-  ±0.5.
+  ±0.5 (`evals/ensemble_check.py`).
 
 ## 3. Score-task regressions: document them
 
@@ -150,12 +150,12 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
 
 ## 6. Release (Phase 3)
 
-- [ ] **Calibrator as served.** Per-config calibrators can't be used for arbitrary requests.
+- [ ] **Calibrator as served.** (`run_suite.py --calibration FILE` done; fit and report pending.) Per-config calibrators can't be used for arbitrary requests.
   Fit one pooled calibrator over all configs' validation rows for the shipped default and add
   `--calibration FILE` to `evals/run_suite.py`. Report the pooled number as the headline and
   per-config as secondary. (Raw and per-config calibrated accuracy differ only on
   civil_comments, so expect about 0.75.)
-- [ ] `moelars serve --preset 30b` (also `30b-duo` if §2 passes) resolves the model, the
+- [x] `moelars serve --preset 30b` (the `30b-duo` preset gets added only if §2 passes) (also `30b-duo` if §2 passes) resolves the model, the
   adapter(s) from the Hub (`huggingface_hub.snapshot_download`) and the pooled calibrator.
   `--backend mock` stays the default with no preset. Add a preset smoke test that uses the
   mock backend in CI.

@@ -1,8 +1,9 @@
 """Named serving configurations: `moelars serve --preset 30b`.
 
-A preset names the backend, the base model, the LoRA adapter, and the calibrator that
-belongs with that adapter. Adapters and calibrators live on the Hugging Face Hub and are
-downloaded on first use; a local directory or file with the same argument is used as is.
+A preset names the backend, the base model, one LoRA adapter or several (served as an
+ensemble, `moelars.engine.EnsembleEngine`), and the calibrator that belongs with each.
+Adapters and calibrators live on the Hugging Face Hub and are downloaded on first use; a
+local directory or file with the same argument is used as is.
 The published adapters are trained on the commercially licensed corpus (DESIGN.md 8.1).
 """
 
@@ -19,17 +20,17 @@ CALIBRATION_FILE = "moelars-calibration.json"
 class Preset:
     backend: str
     model: str
-    adapter: str
+    adapters: tuple[str, ...]
     description: str
 
     @property
-    def calibration(self) -> str:
-        """The pooled calibrator is published inside the adapter's repository."""
-        return f"{self.adapter}/{CALIBRATION_FILE}"
+    def calibrations(self) -> list[str]:
+        """Each adapter's pooled calibrator is published inside that adapter's repository."""
+        return [f"{adapter}/{CALIBRATION_FILE}" for adapter in self.adapters]
 
 
 PRESETS: dict[str, Preset] = {
-    "30b": Preset("mlx", M30, "moedex/moelars-qwen3-30b-a3b-lora-attn",
+    "30b": Preset("mlx", M30, ("moedex/moelars-qwen3-30b-a3b-lora-attn",),
                   "Qwen3-30B-A3B 4-bit with the attention LoRA and its pooled calibrator"),
 }
 

@@ -10,11 +10,11 @@ def test_preset_fills_unset_flags_and_explicit_flags_win():
     args = build_parser().parse_args(["serve", "--preset", "30b"])
     _apply_preset(args)
     preset = presets.PRESETS["30b"]
-    assert (args.backend, args.model, args.adapter) == (preset.backend, preset.model, preset.adapter)
-    assert args.calibration == f"{preset.adapter}/{presets.CALIBRATION_FILE}"
+    assert (args.backend, args.model, args.adapter) == (preset.backend, preset.model, list(preset.adapters))
+    assert args.calibration == [f"{a}/{presets.CALIBRATION_FILE}" for a in preset.adapters]
     args = build_parser().parse_args(["serve", "--preset", "30b", "--adapter", "checkpoints/mine"])
     _apply_preset(args)
-    assert args.adapter == "checkpoints/mine"
+    assert args.adapter == ["checkpoints/mine"] and args.calibration is None
 
 
 def test_unknown_preset_is_refused():

@@ -2,7 +2,8 @@
 
     uv run python scripts/load_cost.py mlx-community/Qwen3-4B-Instruct-2507-4bit mlx-community/Qwen3.5-9B-MLX-4bit
 
-`MODEL@ADAPTER` loads a LoRA adapter directory on top, unfused:
+`MODEL@ADAPTER` loads a LoRA adapter directory on top, unfused, and `MODEL@A,B` serves two
+adapters of one base model as an averaged ensemble:
 
     uv run python scripts/load_cost.py mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit \
         mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@checkpoints/lora-30b
@@ -17,7 +18,7 @@ from pathlib import Path
 import mlx.core as mx
 
 from moelars.backends.mlx import MLXBackend
-from moelars.engine import Engine
+from moelars.engine import Engine, EnsembleEngine
 from moelars.schema import SystemOneRequest
 
 REQUEST = SystemOneRequest(
@@ -37,9 +38,11 @@ def main() -> int:
     out = {}
     for model in sys.argv[1:]:
         path, _, adapter = model.partition("@")
+        adapters = [a for a in adapter.split(",") if a]
         mx.reset_peak_memory()
         started = time.perf_counter()
-        engine = Engine(MLXBackend(path, adapter=adapter or None))
+        backend = MLXBackend(path, adapter=adapters if len(adapters) > 1 else (adapters[0] if adapters else None))
+        engine = EnsembleEngine(backend, [None] * len(adapters)) if len(adapters) > 1 else Engine(backend)
         load_s = time.perf_counter() - started
         engine.evaluate(REQUEST)  # warm-up
         started, n = time.perf_counter(), 20

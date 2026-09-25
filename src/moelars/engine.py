@@ -116,9 +116,16 @@ class Engine:
         ]
 
     def evaluate(self, request: SystemOneRequest) -> SystemOneResponse:
-        if request.model not in (*DEFAULT_ALIASES, self.model_id):
+        rows, usage = self._plan(request, self.model_id)
+        answers = self._reduce(request, self._score(request, rows))
+        self._apply_constraints(answers, request.moelars.constraints)
+        return SystemOneResponse(model=self.model_id, answers=answers, usage=usage)
+
+    def _plan(self, request: SystemOneRequest, model_id: str) -> tuple[list[Row], Usage]:
+        """Rows and usage for a request, after the model-name and budget checks."""
+        if request.model not in (*DEFAULT_ALIASES, model_id):
             raise UnknownModelError(f"model {request.model!r} is not served here; use {MODEL_ALIAS!r} "
-                                    f"or {self.model_id!r}")
+                                    f"or {model_id!r}")
         rows = plan_rows(request, self.labels)
         if self.max_rows is not None and len(rows) > self.max_rows:
             raise BudgetError(f"request plans {len(rows)} model rows, over the budget of {self.max_rows}; "
@@ -127,10 +134,7 @@ class Engine:
         if self.max_input_tokens is not None and usage.input_tokens > self.max_input_tokens:
             raise BudgetError(f"request needs {usage.input_tokens} input tokens, over the budget of "
                               f"{self.max_input_tokens}; shorten the state or turn off explain")
-        scored = self._score(request, rows)
-        answers = self._reduce(request, scored)
-        self._apply_constraints(answers, request.moelars.constraints)
-        return SystemOneResponse(model=self.model_id, answers=answers, usage=usage)
+        return rows, usage
 
     def raw_logits(self, state: object, question_id: str, question: object) -> tuple[tuple[str, ...], np.ndarray]:
         """Uncalibrated label logits for one question. Used by calibration and evals."""
@@ -373,3 +377,109 @@ def _project_constraints(p: dict[str, float], constraints: list[Constraint]) -> 
         if np.abs(x - previous).max() < CONSTRAINT_TOLERANCE:
             break
     return {q: float(x[i]) for q, i in index.items()}
+
+
+# --------------------------------------------------------------------------- ensembles
+
+
+class _AdapterView:
+    """One adapter of a multi-adapter backend: selects it before every pass, delegates the rest."""
+
+    def __init__(self, backend: Backend, index: int) -> None:
+        self._backend, self._index = backend, index
+
+    def __getattr__(self, name: str):
+        return getattr(self._backend, name)
+
+    def label_logits(self, prefix, suffixes, labels):
+        self._backend.use_adapter(self._index)  # type: ignore[attr-defined]
+        return self._backend.label_logits(prefix, suffixes, labels)
+
+    def label_logits_with_features(self, prefix, suffixes, labels, option_ends=None):
+        self._backend.use_adapter(self._index)  # type: ignore[attr-defined]
+        return self._backend.label_logits_with_features(prefix, suffixes, labels, option_ends)  # type: ignore[attr-defined]
+
+
+class EnsembleEngine:
+    """Several adapters of one base model, each with its own calibrator, averaged per question.
+
+    Every member scores the same planned rows; their calibrated answers are averaged (noul
+    P(yes), choice, score and multi probabilities, evidence effects per span), confidence and
+    abstention are recomputed on the average, and constraints are applied once at the end.
+    Equivalent to the `blend` policy of `evals/cascade.py` on every row.
+    """
+
+    def __init__(self, backend: Backend, calibrators: list[Calibrator | None], version: str = "0.0.1",
+                 **budgets: int | None) -> None:
+        if len(calibrators) < 2:
+            raise ValueError("an ensemble needs at least two members")
+        self.backend = backend
+        self.version = version
+        self.members = [Engine(_AdapterView(backend, i), calibrator=c, version=version, **budgets)  # type: ignore[arg-type]
+                        for i, c in enumerate(calibrators)]
+
+    @property
+    def model_id(self) -> str:
+        return self.members[0].model_id
+
+    def models(self) -> list[ModelCard]:
+        return self.members[0].models()
+
+    def evaluate(self, request: SystemOneRequest) -> SystemOneResponse:
+        rows, usage = self.members[0]._plan(request, self.model_id)
+        per_member = [m._reduce(request, m._score(request, rows)) for m in self.members]
+        answers = {qid: _average([a[qid] for a in per_member], request.moelars.abstain_margin)
+                   for qid in request.questions}
+        Engine._apply_constraints(answers, request.moelars.constraints)
+        n = len(self.members)
+        usage = Usage(input_tokens=usage.input_tokens * n, output_tokens=usage.output_tokens * n)
+        return SystemOneResponse(model=self.model_id, answers=answers, usage=usage)
+
+
+def _mean_dict(dicts: list[dict[str, float]]) -> dict[str, float]:
+    return {k: float(np.mean([d[k] for d in dicts])) for k in dicts[0]}
+
+
+def _average_evidence(answers: list[Answer]) -> list[Evidence] | None:
+    lists = [a.evidence for a in answers]
+    if all(e is None for e in lists):
+        return None
+    effects: dict[str, list[float]] = defaultdict(list)
+    for evidence in lists:
+        for item in evidence or []:
+            effects[item.span].append(item.effect)
+    ranked = sorted(((span, sum(v) / len(answers)) for span, v in effects.items()), key=lambda pair: -pair[1])
+    return [Evidence(span=span, effect=round(value, 4)) for span, value in ranked[:MAX_EVIDENCE] if value > 0]
+
+
+def _average(answers: list[Answer], abstain_margin: float | None) -> Answer:
+    first = answers[0]
+    evidence = _average_evidence(answers)
+    if isinstance(first, NoulAnswer):
+        p = float(np.mean([a.noul for a in answers]))  # type: ignore[union-attr]
+        noul = NoulAnswer(noul=round(p, 4), evidence=evidence)
+        if abstain_margin is not None:
+            noul.abstain = abs(p - 0.5) * 2 < abstain_margin
+        return noul
+    if isinstance(first, MultiAnswer):
+        probs = {k: round(v, 4) for k, v in _mean_dict([a.probabilities for a in answers]).items()}  # type: ignore[union-attr]
+        return MultiAnswer(probabilities=probs, selected=[k for k, p in probs.items() if p >= 0.5], evidence=evidence)
+    mean = _mean_dict([a.probabilities for a in answers])  # type: ignore[union-attr]
+    keys = tuple(mean)
+    vector = np.asarray([mean[k] for k in keys])
+    if isinstance(first, ChoiceAnswer):
+        choice = ChoiceAnswer(choice=keys[int(vector.argmax())], probabilities=round_probs(keys, vector),
+                              confidence=round(choice_confidence(vector), 4), evidence=evidence)
+        sensitivities = [a.order_sensitivity for a in answers if a.order_sensitivity is not None]  # type: ignore[union-attr]
+        if sensitivities:
+            choice.order_sensitivity = round(float(np.mean(sensitivities)), 4)
+        if abstain_margin is not None:
+            choice.abstain = top_margin(vector) < abstain_margin
+        return choice
+    assert isinstance(first, ScoreAnswer)
+    score = ScoreAnswer(score=round(expected_score(vector), 4), legend=first.legend,
+                        probabilities=round_probs(keys, vector), confidence=round(score_confidence(vector), 4),
+                        evidence=evidence)
+    if abstain_margin is not None:
+        score.abstain = top_margin(vector) < abstain_margin
+    return score
