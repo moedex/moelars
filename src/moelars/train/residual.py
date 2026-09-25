@@ -30,11 +30,23 @@ def _mlx():
     return mx, nn, optim
 
 
+def _check_manifest(path: Path, presentations: int) -> None:
+    """Refuse a shard that the `manifest.json` beside it does not describe (a stale leftover)."""
+    manifest_path = path.parent / "manifest.json"
+    if not manifest_path.exists():
+        return
+    entry = json.loads(manifest_path.read_text()).get(path.stem)
+    if not isinstance(entry, dict) or entry.get("presentations") != presentations:
+        raise ValueError(f"{path} is not the {path.stem!r} shard in {manifest_path} "
+                         "(left over from an earlier extraction?); re-extract into a fresh directory")
+
+
 class Shard:
     def __init__(self, path: str | Path):
         from moelars.heads import rms_normalize
 
         data = np.load(path)
+        _check_manifest(Path(path), len(data["z"]))
         self.h_ans = rms_normalize(data["h_ans"])
         self.h_opt = rms_normalize(data["h_opt"])
         self.z = data["z"]

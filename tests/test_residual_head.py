@@ -73,3 +73,12 @@ def test_selection_keeps_the_backbone_when_no_epoch_beats_it(tmp_path):
     head, history = train(shard, shard, rank=8, epochs=2, batch_size=32, lr=0.0, perm_weight=0.0)
     assert not any(entry.get("selected") for entry in history)
     assert evaluate(mx, head, shard) == baseline(mx, shard)
+
+
+def test_a_shard_the_manifest_does_not_describe_is_refused(tmp_path):
+    import json
+
+    _synthetic_shard(tmp_path)  # no manifest: accepted
+    (tmp_path / "manifest.json").write_text(json.dumps({"shard": {"presentations": 1}}))
+    with pytest.raises(ValueError, match="left over"):
+        Shard(tmp_path / "shard.npz")

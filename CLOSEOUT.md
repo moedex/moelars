@@ -124,9 +124,9 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
 - [x] **M9** Use the normalized soft target for nouls in metrics and Platt fitting.
 - [x] **M10** `coverage_at_error` evaluates groups of equal confidence together; test
   `[0.9, 0.9]` / `[1, 0]`.
-- [ ] **M12** Extraction deletes stale `heldout.npz` / `test.npz` and writes a manifest
+- [x] **M12** Extraction deletes stale `heldout.npz` / `test.npz` and writes a manifest
   fingerprint; consumers check it.
-- [ ] **M13** Fingerprint suite inputs per config (rows, backend, adapter, head, template, data
+- [x] **M13** Fingerprint suite inputs per config (rows, backend, adapter, head, template, data
   hash); a mismatch or a missing row dump means recomputing.
 - [ ] After the M4, M5 and M7 fixes, re-run the suite for the shipped default and confirm the
   headline hasn't moved by more than noise (render changes affect every prompt).

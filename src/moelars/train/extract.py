@@ -85,6 +85,12 @@ def main() -> int:
         print(f"wrote {out / 'sources.json'} with {len(sources) - 1} ids")
         return 0
 
+    # Shards and the manifest from an earlier run in this directory would otherwise survive
+    # when this run writes fewer subsets; consumers check a shard against the manifest.
+    for stale in ("train.npz", "heldout.npz", "test.npz", "manifest.json"):
+        for path in (out / stale, out / f"{stale}.json"):
+            path.unlink(missing_ok=True)
+
     backend = MLXBackend(args.model, adapter=args.adapter)
     proj = projection(backend.hidden_size, args.proj_dim, seed=args.seed)
     np.save(out / "projection.npy", proj)

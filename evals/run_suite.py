@@ -15,6 +15,7 @@ head-plus-per-config-calibration run sits next to the Tier A run for the same mo
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -104,6 +105,27 @@ def render_table(results: dict, jev: dict, path: Path) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def _file_stamp(path: str | None) -> str | None:
+    """Size and mtime of a file, or of every file under a directory; enough to notice a swap."""
+    if not path:
+        return None
+    target = Path(path)
+    files = sorted(f for f in target.rglob("*") if f.is_file()) if target.is_dir() else [target]
+    return ";".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files if f.exists())
+
+
+def fingerprint(args: argparse.Namespace, cfg: str) -> str:
+    """Everything that decides one config's numbers: a cached entry is reused only if this matches."""
+    data = hashlib.sha256()
+    for split in ("test", "validation"):
+        path = Path(args.data_dir) / f"{cfg}.{split}.jsonl"
+        data.update(path.read_bytes() if path.exists() else b"")
+    parts = {"model": args.model, "backend": args.backend, "template": args.template, "rows": args.rows,
+             "adapter": _file_stamp(args.adapter), "head": _file_stamp(args.head),
+             "projection": _file_stamp(args.projection), "data": data.hexdigest()[:16], "version": __version__}
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--backend", default="mlx")
@@ -132,6 +154,12 @@ def main() -> int:
     jev = json.loads((HERE / "jev_published.json").read_text())
 
     results = json.loads(out_json.read_text()) if out_json.exists() and not args.force else {}
+    # The run metadata below is rewritten for this run, so an entry from a different setup
+    # (rows, backend, adapter, head, template, data) must not stay under it.
+    for cfg in list(results.get("configs", {})):
+        if results["configs"][cfg].get("fingerprint") != fingerprint(args, cfg):
+            print(f"[{cfg}] setup changed since the cached result; dropped", flush=True)
+            del results["configs"][cfg]
     results.update({"model": args.model, "backend": args.backend, "rows_per_split": args.rows, "version": __version__,
                     "adapter": args.adapter, "head": args.head})
     results.setdefault("configs", {})
@@ -150,7 +178,8 @@ def main() -> int:
         return Engine(backend, calibrator=calibrator, head=head)
 
     for cfg in [c.strip() for c in args.configs.split(",") if c.strip()]:
-        if cfg in results["configs"] and not args.force:
+        rows_path = Path(args.out_dir) / "rows" / slug / f"{cfg}.json"
+        if cfg in results["configs"] and not args.force and (rows_path.exists() or not args.dump_rows):
             print(f"[{cfg}] cached", flush=True)
             continue
         test_path = Path(args.data_dir) / f"{cfg}.test.jsonl"
@@ -184,13 +213,13 @@ def main() -> int:
             val_rows: list[dict] = []
             if val_path.exists() and val_path.stat().st_size > 0:
                 evaluate(engine(calibrator), list(read_examples(val_path))[: args.rows], rows=val_rows)
-            rows_path = Path(args.out_dir) / "rows" / slug / f"{cfg}.json"
             rows_path.parent.mkdir(parents=True, exist_ok=True)
             rows_path.write_text(json.dumps({"test": test_rows, "validation": val_rows}))
 
         first_question = test[0].question
         k = len(first_question.get("criteria") or []) if first_question["type"] != "noul" else 2
-        entry = {"k": k, "raw": asdict(raw), "calibrated": asdict(calibrated) if calibrated else None,
+        entry = {"fingerprint": fingerprint(args, cfg), "k": k, "raw": asdict(raw),
+                 "calibrated": asdict(calibrated) if calibrated else None,
                  "elapsed_s": round(time.perf_counter() - started, 1), "peak_memory_gb": peak_memory_gb(backend)}
         results["configs"][cfg] = entry
         out_json.write_text(json.dumps(results, indent=2))

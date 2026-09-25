@@ -96,11 +96,15 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M12. Re-extraction can leave stale held-out or test shards
 
+**Status (2026-09-25): fixed.** Extraction deletes `train`/`heldout`/`test` shards and `manifest.json` in `--out` before writing, and `Shard` refuses a shard whose `manifest.json` beside it does not list it with the same number of presentations. The three committed feature directories pass.
+
 **Evidence:** `src/moelar/train/extract.py:94-110` skips empty subsets without removing existing `heldout.npz` or `test.npz` in `--out`; `src/moelar/train/features.py:101-102` also writes nothing for an empty presentation stream. The documented next step reads `heldout.npz` by path (`src/moelar/train/README.md:53-55`).
 
 **Impact and trigger:** Reusing an output directory after changing model, split, or test inputs can let later training or reports silently consume shards from a previous run. **Suggested fix:** Use a fresh output directory or remove obsolete shards and verify shard provenance against the current manifest before consuming them.
 
 ### M13. Suite caching can mix old metrics with new run metadata and skip row dumps
+
+**Status (2026-09-25): fixed.** Each config's entry carries a fingerprint of model, backend, template, rows, adapter/head/projection files (size and mtime) and the config's data. Entries that don't match the current run are dropped, and with `--dump-rows` a config without its row dump is recomputed (tested end to end on the mock backend). Committed results have no fingerprint, so a rerun under an old slug recomputes them.
 
 **Evidence:** `evals/run_suite.py:127-137` keys the output by model basename plus optional tag, loads existing results, and overwrites top-level run metadata. `:152-155` skips each cached config before the `--dump-rows` writer at `:179-189`.
 
