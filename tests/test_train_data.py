@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from moelars.train.data import (
     Record,
     from_jev_bench,
@@ -66,3 +68,12 @@ def test_roundtrip_and_group_split(tmp_path):
     assert loaded == records
     train, held = split_by_group(loaded, holdout_fraction=0.25, seed=1)
     assert len(held) == 5 and not ({r.source for r in train} & {r.source for r in held})
+
+
+def test_named_holdout_sources_are_fixed_and_checked():
+    records = [Record(f"{s}{i}", s, "noul", "x", "q", ["yes", "no"], [1.0, 0.0]) for s in "abcd" for i in range(3)]
+    for seed in (0, 1, 2):
+        train, held = split_by_group(records, 0.5, seed=seed, sources_to_hold=["b", "d"])
+        assert {r.source for r in held} == {"b", "d"} and {r.source for r in train} == {"a", "c"}
+    with pytest.raises(ValueError, match="not in the records"):
+        split_by_group(records, 0.5, sources_to_hold=["z"])

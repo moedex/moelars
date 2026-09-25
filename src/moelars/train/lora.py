@@ -365,6 +365,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=20000, help="records sampled across --records")
     parser.add_argument("--max-options", type=int, default=160, help="skip records with more options")
     parser.add_argument("--holdout-fraction", type=float, default=0.2)
+    parser.add_argument("--holdout-sources", default=None,
+                        help="comma list of sources to hold out, instead of a seeded fraction of them")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--lr", type=float, default=2e-5, help="peak; LoRA's scale multiplies every update")
     parser.add_argument("--rank", type=int, default=8)
@@ -391,7 +393,9 @@ def main() -> int:
     # and a head trained after it hold out the same sources.
     rng.shuffle(records)
     records = records[: args.limit]
-    train_records, heldout_records = split_by_group(records, args.holdout_fraction, seed=args.seed)
+    held = [x.strip() for x in args.holdout_sources.split(",") if x.strip()] if args.holdout_sources else None
+    train_records, heldout_records = split_by_group(records, args.holdout_fraction, seed=args.seed,
+                                                    sources_to_hold=held)
     print(f"records: {len(records)} -> train {len(train_records)} / heldout {len(heldout_records)} "
           f"(held-out sources: {sorted({r.source for r in heldout_records})[:8]}...)", flush=True)
 

@@ -11,12 +11,15 @@ export MOELARS_MLX_CACHE_GB=${MOELARS_MLX_CACHE_GB:-16}  # the 4 GB serving defa
 mkdir -p logs
 M30=mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit
 RECORDS=(data/train-c/open-jev.train.jsonl data/train-c/jev-bench.train.jsonl data/train-c/tasksource-jev.train.jsonl)
+# The old corpus's seeded held-out sources that corpus C still has, named so that neither the
+# seed nor the changed source list moves which configs the adapter trains on.
+HOLDOUT=jev-bench/civil_comments,jev-bench/fever_evidence,jev-bench/helpsteer2_helpfulness,tasksource-jev/babi_nli/three-arg-relations
 step() { echo "=== $(date '+%H:%M:%S') $1"; }
 
 for SEED in 0 1; do
   NAME=lora-30b-c-s$SEED
   step "$NAME: attention-only LoRA, corpus C, seed $SEED, one epoch"
-  $UV run python -m moelars.train.lora --model $M30 --keys attn --records $RECORDS --limit 20000 --seed $SEED \
+  $UV run python -m moelars.train.lora --model $M30 --keys attn --records $RECORDS --limit 20000 --seed $SEED --holdout-sources $HOLDOUT \
     --out checkpoints/$NAME > logs/$NAME.log 2>&1
   if grep -q '"improved": false' checkpoints/$NAME/adapter_config.json; then
     step "STOP: no checkpoint beat the untrained 30B; the saved adapter is the identity"; exit 1

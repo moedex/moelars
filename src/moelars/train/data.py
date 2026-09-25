@@ -196,8 +196,21 @@ def read_records(path: str | Path) -> Iterator[Record]:
                 yield Record(**json.loads(line))
 
 
-def split_by_group(records: list[Record], holdout_fraction: float, seed: int = 0) -> tuple[list[Record], list[Record]]:
-    """Hold out whole sources, never individual rows, so generalization is measured honestly."""
+def split_by_group(
+    records: list[Record], holdout_fraction: float, seed: int = 0, sources_to_hold: list[str] | None = None
+) -> tuple[list[Record], list[Record]]:
+    """Hold out whole sources, never individual rows, so generalization is measured honestly.
+
+    By default a seeded shuffle picks `holdout_fraction` of the sources, so the choice moves
+    with the seed and with the source list. `sources_to_hold` names them instead, which keeps
+    the held-out set fixed across seeds and corpus revisions.
+    """
+    if sources_to_hold is not None:
+        missing = sorted(set(sources_to_hold) - {r.source for r in records})
+        if missing:
+            raise ValueError(f"held-out sources not in the records: {missing}")
+        held = set(sources_to_hold)
+        return [r for r in records if r.source not in held], [r for r in records if r.source in held]
     sources = sorted({r.source for r in records})
     rng = random.Random(seed)
     rng.shuffle(sources)

@@ -12,9 +12,31 @@ from moelars.calibration import Calibrator
 from moelars.engine import DEFAULT_MAX_INPUT_TOKENS, DEFAULT_MAX_ROWS, Engine
 
 
+def _apply_preset(args: argparse.Namespace) -> None:
+    """Fill backend, model, adapter and calibration from `--preset`; explicit flags win."""
+    from moelars.presets import PRESETS
+
+    name = getattr(args, "preset", None)
+    if not name:
+        return
+    if name not in PRESETS:
+        raise SystemExit(f"unknown preset {name!r}; choose from {', '.join(sorted(PRESETS))}")
+    preset = PRESETS[name]
+    if args.backend in (None, "mock"):
+        args.backend = preset.backend
+    args.model = args.model or preset.model
+    args.adapter = args.adapter or preset.adapter
+    args.calibration = args.calibration or preset.calibration
+
+
 def _engine_from_args(args: argparse.Namespace) -> Engine:
-    backend = load_backend(args.backend, model=args.model, template=args.template, adapter=args.adapter)
-    calibrator = Calibrator.load(args.calibration) if args.calibration else None
+    from moelars.presets import resolve_adapter, resolve_calibration
+
+    _apply_preset(args)
+    backend = load_backend(args.backend, model=args.model, template=args.template,
+                           adapter=resolve_adapter(args.adapter))
+    calibration = resolve_calibration(args.calibration)
+    calibrator = Calibrator.load(calibration) if calibration else None
     head = None
     if args.head:
         from moelars.heads import PointerHeadScorer
@@ -27,11 +49,13 @@ def _engine_from_args(args: argparse.Namespace) -> Engine:
 
 
 def _add_backend_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--preset", default=None, help="named configuration, e.g. 30b (see moelars.presets)")
     parser.add_argument("--backend", default="mock", choices=["mock", "mlx", "llamacpp"])
     parser.add_argument("--model", default=None, help="Model path or Hugging Face id for the backend")
     parser.add_argument("--template", default=None, help="Chat template name: plain, chatml, gemma, llama3")
     parser.add_argument("--calibration", default=None, help="Path to a calibrator JSON produced by `moelars calibrate`")
-    parser.add_argument("--adapter", default=None, help="LoRA adapter directory from `python -m moelars.train.lora`")
+    parser.add_argument("--adapter", default=None,
+                        help="LoRA adapter directory from `python -m moelars.train.lora`, or a Hugging Face repo ID")
     parser.add_argument("--head", default=None, help="Pointer head npz from `python -m moelars.train.residual`")
     parser.add_argument("--projection", default=None, help="projection.npy from feature extraction")
 

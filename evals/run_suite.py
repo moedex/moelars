@@ -63,8 +63,10 @@ def render_table(results: dict, jev: dict, path: Path) -> None:
     lines = [
         f"# {results['model']}",
         "",
-        f"Backend `{results['backend']}`, {results['rows_per_split']} test rows per config, calibration fitted on "
-        f"{results['rows_per_split']} validation rows. moe-LARS {results['version']}"
+        f"Backend `{results['backend']}`, {results['rows_per_split']} test rows per config, "
+        + (f"one pooled calibrator for every config (`{results['calibration']}`, as served)"
+           if results.get("calibration") else f"calibration fitted on {results['rows_per_split']} validation rows")
+        + f". moe-LARS {results['version']}"
         + (f", pointer head `{results['head']}`" if results.get("head") else "")
         + ". Jev column quoted from jev-bench's published jev-1.13.0 run on full splits."
         + (f" Model load {results['load_s']}s." if results.get("load_s") is not None else "")
@@ -122,7 +124,8 @@ def fingerprint(args: argparse.Namespace, cfg: str) -> str:
         data.update(path.read_bytes() if path.exists() else b"")
     parts = {"model": args.model, "backend": args.backend, "template": args.template, "rows": args.rows,
              "adapter": _file_stamp(args.adapter), "head": _file_stamp(args.head),
-             "projection": _file_stamp(args.projection), "data": data.hexdigest()[:16], "version": __version__}
+             "projection": _file_stamp(args.projection), "data": data.hexdigest()[:16], "version": __version__,
+             "calibration": _file_stamp(args.calibration)}
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -140,6 +143,9 @@ def main() -> int:
     parser.add_argument("--head", default=None, help="Tier B pointer head npz; runs every pass through it")
     parser.add_argument("--projection", default=None, help="projection.npy that the head was trained with")
     parser.add_argument("--tag", default=None, help="suffix for the result and calibrator files, e.g. 'head'")
+    parser.add_argument("--calibration", default=None,
+                        help="one calibrator JSON for every config, as served; fitted on the pooled validation "
+                             "rows of the selected configs and saved here if the file does not exist")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dump-rows", action="store_true",
                         help="also write calibrated per-row probabilities for test and validation to "
@@ -161,7 +167,7 @@ def main() -> int:
             print(f"[{cfg}] setup changed since the cached result; dropped", flush=True)
             del results["configs"][cfg]
     results.update({"model": args.model, "backend": args.backend, "rows_per_split": args.rows, "version": __version__,
-                    "adapter": args.adapter, "head": args.head})
+                    "adapter": args.adapter, "head": args.head, "calibration": args.calibration})
     results.setdefault("configs", {})
 
     load_started = time.perf_counter()
@@ -177,7 +183,20 @@ def main() -> int:
     def engine(calibrator: Calibrator | None = None) -> Engine:
         return Engine(backend, calibrator=calibrator, head=head)
 
-    for cfg in [c.strip() for c in args.configs.split(",") if c.strip()]:
+    configs = [c.strip() for c in args.configs.split(",") if c.strip()]
+    pooled: Calibrator | None = None
+    if args.calibration:
+        if Path(args.calibration).exists():
+            pooled = Calibrator.load(args.calibration)
+        else:
+            val = [e for cfg in configs if (Path(args.data_dir) / f"{cfg}.validation.jsonl").exists()
+                   for e in list(read_examples(Path(args.data_dir) / f"{cfg}.validation.jsonl"))[: args.rows]]
+            source = f"jev-bench/{len(configs)} configs/validation[:{args.rows}] pooled"
+            pooled = calibrate(engine(), val, source=source)
+            pooled.save(args.calibration)
+            print(f"fitted one calibrator on {len(val)} pooled validation rows -> {args.calibration}", flush=True)
+
+    for cfg in configs:
         rows_path = Path(args.out_dir) / "rows" / slug / f"{cfg}.json"
         if cfg in results["configs"] and not args.force and (rows_path.exists() or not args.dump_rows):
             print(f"[{cfg}] cached", flush=True)
@@ -191,8 +210,10 @@ def main() -> int:
         started = time.perf_counter()
         raw = evaluate(engine(), test)
 
-        calibrator: Calibrator | None = None
-        if val_path.exists() and val_path.stat().st_size > 0:
+        calibrator: Calibrator | None = pooled
+        if pooled is not None:
+            pass
+        elif val_path.exists() and val_path.stat().st_size > 0:
             val = list(read_examples(val_path))[: args.rows]
             calibrator = calibrate(engine(), val, source=f"jev-bench/{cfg}/validation[:{len(val)}]")
         elif cfg in CALIBRATION_FALLBACK:
@@ -202,7 +223,7 @@ def main() -> int:
                 calibrator = calibrators[fallback]
             elif fallback_path.exists():
                 calibrator = Calibrator.load(fallback_path)
-        if calibrator is not None:
+        if calibrator is not None and pooled is None:
             calibrators[cfg] = calibrator
             calibrator.save(Path(args.calibration_dir) / f"{cfg}.{slug}.json")
         test_rows: list[dict] | None = [] if args.dump_rows else None
