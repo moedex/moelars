@@ -62,6 +62,20 @@ uv sync --extra dev --extra llamacpp
 uv run moelars serve --backend llamacpp --model ./models/qwen3.5-4b-instruct-q4_k_m.gguf --template chatml
 ```
 
+In Docker (Linux has no Metal, so the container serves the mock backend or GGUF models on
+CPU through llama.cpp; use the MLX backend natively on Apple Silicon):
+
+```bash
+docker build -t moelars .                                        # mock backend
+docker run --rm -p 8600:8600 moelars
+docker build -t moelars:llamacpp --build-arg EXTRAS=llamacpp .   # compiles llama.cpp for CPU
+docker run --rm -p 8600:8600 -v "$PWD/models:/models:ro" moelars:llamacpp \
+  --backend llamacpp --model /models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --template chatml
+```
+
+Arguments after the image name go to `moelars serve`; set `MOELARS_API_KEY` with `-e` to
+require a bearer token.
+
 Use it from the official System One SDKs by swapping the base URL:
 
 ```python
@@ -70,8 +84,8 @@ from typesafe_sdk import Choice, Noul, TypeSafeClient
 client = TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8600")
 r = client.system_one(
     state="I was charged twice.",
-    questions={"refund": Noul("Is the customer asking for money back?"),
-               "team": Choice("Which team?", criteria={"billing": None, "technical": None})},
+    questions={"refund": Noul(instructions="Is the customer asking for money back?"),
+               "team": Choice(instructions="Which team?", criteria={"billing": "Charges", "technical": "Bugs"})},
 )
 print(r.nouls["refund"].noul, r.choices["team"].choice)
 ```
@@ -155,7 +169,8 @@ Full tables in `evals/RESULTS.md`, newest section last.
 Pre-alpha, closing out to v0.1.0 (`CLOSEOUT.md`). The mock backend and the HTTP contract
 are tested. The MLX backend has been run on Apple Silicon with Qwen3-4B, Qwen3.5-9B and
 Qwen3-30B-A3B, zero-shot, with Tier B heads, and with LoRA adapters. The llama.cpp
-backend is written against its library's documented API and still needs a hardware pass.
+backend has run in the Docker image on CPU (Qwen3-4B Q4_K_M: boolq 0.84, sst5 0.48 on 100
+rows each, about 2.5 s per row), but has not been benchmarked on the full suite.
 See `DESIGN.md` for the architecture, the reasoning, and the roadmap.
 
 ## License

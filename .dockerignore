@@ -1,0 +1,9 @@
+# Only the package, its metadata, and the demo samples go into the image.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!evals/samples/
+**/__pycache__

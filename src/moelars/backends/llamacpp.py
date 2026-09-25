@@ -47,6 +47,17 @@ class LlamaCppBackend(Backend):
     def count_tokens(self, text: str) -> int:
         return len(self._encode(text))
 
+    def _last_logits(self) -> np.ndarray:
+        """Next-token logits after the last evaluated token.
+
+        Read from the context: with `logits_all=False`, llama-cpp-python (0.3.35) leaves its
+        `scores` array at zero, which made every label tie.
+        """
+        import llama_cpp
+
+        pointer = llama_cpp.llama_get_logits_ith(self.llm.ctx, -1)
+        return np.ctypeslib.as_array(pointer, shape=(self.llm.n_vocab(),)).astype(np.float64)
+
     def label_logits(self, prefix: str, suffixes: list[str], labels: list[tuple[str, ...]]) -> list[np.ndarray]:
         llm = self.llm
         prefix_ids = self._encode(prefix, bos=True)
@@ -63,7 +74,7 @@ class LlamaCppBackend(Backend):
             else:
                 llm.reset()
                 llm.eval(full_ids)
-            vocab_logits = np.asarray(llm.scores[llm.n_tokens - 1], dtype=np.float64)
+            vocab_logits = self._last_logits()
             ids = [self._label_id(label) for label in row_labels]
             if any(i is None for i in ids):
                 raise ValueError(f"labels not single-token for this tokenizer: {row_labels}")

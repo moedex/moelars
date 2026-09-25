@@ -164,7 +164,8 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
   seed, training sources and licenses from §5, the jev-bench table, known limitations, and the
   data policy (no Jev-labeled data).
 - [ ] Docs: README quickstart using the preset, the headline table, the civil_comments caveat,
-  and "MLX only; llama.cpp untested on hardware". Update `HANDOFF.md` and `evals/RESULTS.md`.
+  and the Docker images (mock, and llama.cpp on CPU: first hardware pass 2026-09-25 found
+  and fixed zeroed logits; Qwen3-4B Q4_K_M boolq 0.84, sst5 0.48 on 100 rows). Update `HANDOFF.md` and `evals/RESULTS.md`.
 - [ ] Bump `version` to 0.1.0 in `pyproject.toml` and `src/moelars/__init__.py`, and add a
   `CHANGELOG.md` entry.
 - [ ] Final checks on a clean checkout: `uv sync`, `ruff`, `pytest` (MLX tests here), CI green
