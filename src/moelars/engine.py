@@ -159,9 +159,9 @@ class Engine:
                 logits = self.backend.label_logits(prefix, suffixes, labels)
             else:
                 logits = []
-                for (index, _), (z, h_ans, h_opt) in zip(
-                    members, self.backend.label_logits_with_features(prefix, suffixes, labels), strict=True  # type: ignore[attr-defined]
-                ):
+                ends = [rows[i].option_ends for i, _ in members]
+                features = self.backend.label_logits_with_features(prefix, suffixes, labels, ends)  # type: ignore[attr-defined]
+                for (index, _), (z, h_ans, h_opt) in zip(members, features, strict=True):
                     kind = "noul" if rows[index].kind == "multi" else rows[index].kind
                     logits.append(self.head.adjust(z, self.head.project(h_ans), self.head.project(h_opt), kind))
             for (index, _), row_logits in zip(members, logits, strict=True):

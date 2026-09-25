@@ -109,58 +109,69 @@ class Row:
     variant: str = "base"
     state_text: str | None = None
     ablated_span: str | None = None
+    # Character offset in suffix_body (and so in the suffix) where each option line ends,
+    # recorded while rendering so a pointer head never re-parses caller text for options.
+    option_ends: tuple[int, ...] = ()
 
 
-def _options_block(keys: list[str], descriptions: list[JSONContent], labels: list[str], header: str) -> str:
-    lines = [header]
-    for label, key, description in zip(labels, keys, descriptions, strict=True):
-        lines.append(f"{label}) {_describe(key, description)}")
-    return "\n".join(lines)
+Rendered = tuple[str, tuple[str, ...], tuple[int, ...]]
 
 
-def render_noul(question: NoulQuestion, labels: list[str]) -> tuple[str, tuple[str, ...]]:
+def _with_options(lead: str, entries: list[str]) -> tuple[str, tuple[int, ...]]:
+    """`lead` then the option entries one per line, and where each entry's first line ends."""
+    body, ends = lead, []
+    for i, entry in enumerate(entries):
+        if i:
+            body += "\n"
+        newline = entry.find("\n")
+        ends.append(len(body) + (newline if newline != -1 else len(entry)))
+        body += entry
+    return body, tuple(ends)
+
+
+def render_noul(question: NoulQuestion, labels: list[str]) -> Rendered:
     criteria = question.criteria
     yes_desc = render_content(criteria.true).strip() if criteria and criteria.true is not None else ""
     no_desc = render_content(criteria.false).strip() if criteria and criteria.false is not None else ""
     yes_line = f"{labels[0]}) yes" + (f": {yes_desc}" if yes_desc else "")
     no_line = f"{labels[1]}) no" + (f": {no_desc}" if no_desc else "")
     instructions = render_content(question.instructions).strip()
-    body = f"QUESTION: {instructions}\nIs this true of the state?\nOPTIONS:\n{yes_line}\n{no_line}"
-    return body, NOUL_KEYS
+    lead = f"QUESTION: {instructions}\nIs this true of the state?\nOPTIONS:\n"
+    body, ends = _with_options(lead, [yes_line, no_line])
+    return body, NOUL_KEYS, ends
 
 
-def render_choice(question: ChoiceQuestion, labels: list[str], order: list[int]) -> tuple[str, tuple[str, ...]]:
+def render_choice(question: ChoiceQuestion, labels: list[str], order: list[int]) -> Rendered:
     keys_all = list(question.criteria)
     keys = [keys_all[i] for i in order]
-    descriptions = [question.criteria[k] for k in keys]
-    block = _options_block(keys, descriptions, labels[: len(keys)], "OPTIONS:")
-    body = f"QUESTION: {render_content(question.instructions).strip()}\nPick the single best option.\n{block}"
-    return body, tuple(keys)
+    entries = [f"{label}) {_describe(key, question.criteria[key])}" for label, key in zip(labels, keys, strict=False)]
+    lead = f"QUESTION: {render_content(question.instructions).strip()}\nPick the single best option.\nOPTIONS:\n"
+    body, ends = _with_options(lead, entries)
+    return body, tuple(keys), ends
 
 
-def render_score(question: ScoreQuestion, labels: list[str]) -> tuple[str, tuple[str, ...]]:
+def render_score(question: ScoreQuestion, labels: list[str]) -> Rendered:
     keys = [str(i) for i in range(len(question.criteria))]
     descriptions = [f"level {i}: {render_content(c).strip() or 'unspecified'}" for i, c in enumerate(question.criteria)]
-    lines = ["LEVELS (ordered from lowest to highest):"]
-    for label, description in zip(labels, descriptions, strict=False):
-        lines.append(f"{label}) {description}")
+    entries = [f"{label}) {description}" for label, description in zip(labels, descriptions, strict=False)]
     instructions = render_content(question.instructions).strip()
-    body = f"QUESTION: {instructions}\nWhich level fits the state best?\n" + "\n".join(lines)
-    return body, tuple(keys)
+    lead = f"QUESTION: {instructions}\nWhich level fits the state best?\nLEVELS (ordered from lowest to highest):\n"
+    body, ends = _with_options(lead, entries)
+    return body, tuple(keys), ends
 
 
-def render_multi_option(question: MultiQuestion, key: str, labels: list[str]) -> tuple[str, tuple[str, ...]]:
-    body = (
+def render_multi_option(question: MultiQuestion, key: str, labels: list[str]) -> Rendered:
+    lead = (
         f"QUESTION: {render_content(question.instructions).strip()}\n"
         f"Does this option apply to the state?\nOPTION: {_describe(key, question.criteria[key])}\n"
-        f"OPTIONS:\n{labels[0]}) yes\n{labels[1]}) no"
+        "OPTIONS:\n"
     )
-    return body, NOUL_KEYS
+    body, ends = _with_options(lead, [f"{labels[0]}) yes", f"{labels[1]}) no"])
+    return body, NOUL_KEYS, ends
 
 
 def _split_units(state_text: str) -> list[str]:
-    units = [u.strip() for u in re.split(r"(?<=[.!?])\s+|\n+", state_text) if u.strip()]
-    return units[:MAX_ABLATION_UNITS]
+    return [u.strip() for u in re.split(r"(?<=[.!?])\s+|\n+", state_text) if u.strip()]
 
 
 def plan_rows(request: SystemOneRequest, labels: list[str]) -> list[Row]:
@@ -171,21 +182,21 @@ def plan_rows(request: SystemOneRequest, labels: list[str]) -> list[Row]:
     def base_rows(state_text: str | None, variant: str, ablated: str | None) -> None:
         for qid, question in request.questions.items():
             if isinstance(question, NoulQuestion):
-                body, keys = render_noul(question, labels)
-                rows.append(Row(qid, "noul", keys, tuple(labels[:2]), body, variant, state_text, ablated))
+                body, keys, ends = render_noul(question, labels)
+                rows.append(Row(qid, "noul", keys, tuple(labels[:2]), body, variant, state_text, ablated, ends))
             elif isinstance(question, ChoiceQuestion):
                 n = len(question.criteria)
-                body, keys = render_choice(question, labels, list(range(n)))
-                rows.append(Row(qid, "choice", keys, tuple(labels[:n]), body, variant, state_text, ablated))
+                body, keys, ends = render_choice(question, labels, list(range(n)))
+                rows.append(Row(qid, "choice", keys, tuple(labels[:n]), body, variant, state_text, ablated, ends))
             elif isinstance(question, ScoreQuestion):
                 n = len(question.criteria)
-                body, keys = render_score(question, labels)
-                rows.append(Row(qid, "score", keys, tuple(labels[:n]), body, variant, state_text, ablated))
+                body, keys, ends = render_score(question, labels)
+                rows.append(Row(qid, "score", keys, tuple(labels[:n]), body, variant, state_text, ablated, ends))
             elif isinstance(question, MultiQuestion):
                 for key in question.criteria:
-                    body, keys = render_multi_option(question, key, labels)
+                    body, keys, ends = render_multi_option(question, key, labels)
                     rows.append(
-                        Row(qid, "multi", keys, tuple(labels[:2]), body, f"{variant}:{key}", state_text, ablated)
+                        Row(qid, "multi", keys, tuple(labels[:2]), body, f"{variant}:{key}", state_text, ablated, ends)
                     )
 
     base_rows(None, "base", None)
@@ -199,13 +210,15 @@ def plan_rows(request: SystemOneRequest, labels: list[str]) -> list[Row]:
             for p in range(options.permutations):
                 order = list(range(n))
                 rng.shuffle(order)
-                body, keys = render_choice(question, labels, order)
-                rows.append(Row(qid, "choice", keys, tuple(labels[:n]), body, f"perm:{p}"))
+                body, keys, ends = render_choice(question, labels, order)
+                rows.append(Row(qid, "choice", keys, tuple(labels[:n]), body, f"perm:{p}", option_ends=ends))
 
     if options.explain and isinstance(request.state, str):
         units = _split_units(request.state)
         if len(units) > 1:
-            for i, unit in enumerate(units):
+            # Only the first MAX_ABLATION_UNITS are ablated, but every ablated state keeps all
+            # the other units, so an effect is the named span's alone.
+            for i, unit in enumerate(units[:MAX_ABLATION_UNITS]):
                 remaining = "\n".join(u for j, u in enumerate(units) if j != i)
                 base_rows(remaining, f"ablate:{i}", unit)
 

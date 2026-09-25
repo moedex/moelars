@@ -166,13 +166,20 @@ class MLXBackend(Backend):
         return [z for z, _, _ in self._score_rows(prefix, suffixes, labels, want_hidden=False)]
 
     def label_logits_with_features(
-        self, prefix: str, suffixes: list[str], labels: list[tuple[str, ...]]
+        self,
+        prefix: str,
+        suffixes: list[str],
+        labels: list[tuple[str, ...]],
+        option_ends: list[tuple[int, ...]] | None = None,
     ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """Per suffix: (label logits, hidden at the answer position, hidden at each option line end).
 
+        `option_ends` gives, per suffix, the character offset in it where each option line
+        ends, as `render` records them (`Row.option_ends`). Without it the suffix is parsed
+        for option lines, which caller text shaped like `A) ...` can fool.
         Hidden states are unprojected (hidden_size). The pointer head projects them.
         """
-        return self._score_rows(prefix, suffixes, labels, want_hidden=True)
+        return self._score_rows(prefix, suffixes, labels, want_hidden=True, option_ends=option_ends)
 
     def _hidden_forward(self, ids: list[int], cache: Any):
         """Run the transformer body only; returns (T, hidden) for these positions."""
@@ -182,7 +189,12 @@ class MLXBackend(Backend):
         return hidden
 
     def _score_rows(
-        self, prefix: str, suffixes: list[str], labels: list[tuple[str, ...]], want_hidden: bool
+        self,
+        prefix: str,
+        suffixes: list[str],
+        labels: list[tuple[str, ...]],
+        want_hidden: bool,
+        option_ends: list[tuple[int, ...]] | None = None,
     ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         mx = self._mx
         prefix_ids = self._encode(prefix)
@@ -193,7 +205,8 @@ class MLXBackend(Backend):
             snapshot = self._snapshot(prefix_cache)
 
         results = []
-        for suffix, row_labels in zip(suffixes, labels, strict=True):
+        ends_per_row = option_ends if option_ends is not None else [None] * len(suffixes)
+        for suffix, row_labels, row_ends in zip(suffixes, labels, ends_per_row, strict=True):
             ids = [self._label_id(label) for label in row_labels]
             if any(i is None for i in ids):
                 raise ValueError(f"labels not single-token for this tokenizer: {row_labels}")
@@ -214,7 +227,12 @@ class MLXBackend(Backend):
             h_ans = np.asarray(hidden[-1].astype(mx.float32))
             z = (rows @ h_ans).astype(np.float64)
             offsets = self.token_offsets(prefix + suffix)
-            ends = option_end_char_offsets(prefix, suffix, len(row_labels))
+            if row_ends:
+                if len(row_ends) != len(row_labels):
+                    raise ValueError(f"{len(row_ends)} option offsets for {len(row_labels)} labels")
+                ends = [len(prefix) + e for e in row_ends]
+            else:
+                ends = option_end_char_offsets(prefix, suffix, len(row_labels))
             token_idx = [max(i - offset, 0) for i in char_offsets_to_token_indexes(offsets, ends)]
             h_opt = np.asarray(hidden[mx.array(token_idx)].astype(mx.float32))
             results.append((z, h_ans, h_opt))

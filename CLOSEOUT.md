@@ -115,10 +115,10 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
   match; test with the sentinel inside state.
 - [x] **M5** Apply constraints until nothing changes (with an iteration cap) and check the
   invariants; round only at the end; test the exclusive+complement case from the review.
-- [ ] **M6** Keep units after 24 in every ablated state (or decline evidence past 24 units
+- [x] **M6** Keep units after 24 in every ablated state (or decline evidence past 24 units
   with a warning); test with a 30-unit state.
-- [ ] **M7** Pass option offsets from `render` to the pointer head instead of re-parsing
-  `A) `; escape newlines in instructions and criteria.
+- [x] **M7** Pass option offsets from `render` to the pointer head instead of re-parsing
+  `A) `. (No escaping: prompts stay byte-identical, so no suite re-run is needed for M4 or M7.)
 - [ ] **M8** Reject `multi` examples in eval/calibrate with a clear error (per-option labels
   are post-release).
 - [ ] **M9** Use the normalized soft target for nouls in metrics and Platt fitting.

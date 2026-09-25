@@ -46,7 +46,7 @@ def main() -> int:
         criteria={"billing": "Payments, payouts", "technical": "Bugs, outages", "sales": "Pricing, demos"},
     )
     labels = ("A", "B", "C")
-    body, _ = render_choice(question, list(labels), [0, 1, 2])
+    body, _, _ = render_choice(question, list(labels), [0, 1, 2])
     state = render_content("Help! My payouts have been failing for 3 days.")
     prefix, suffix = compose_prompt(backend.template(), state, body)
     print("prompt tail:", repr((prefix + suffix)[-80:]))

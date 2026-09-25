@@ -51,7 +51,7 @@ class Example:
 
 def encode(backend: Any, record: Record, labels: list[str], order: list[int]) -> Example:
     """Render `record` exactly as the engine would, with its options presented in `order`."""
-    body, _ = _render(record, labels, order)
+    body, _, _ = _render(record, labels, order)
     prefix, suffix = compose_prompt(backend.template(), render_content(record.state), body)
     k = len(record.options)
     label_ids = [backend._label_id(label) for label in labels[:k]]

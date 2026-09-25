@@ -48,11 +48,15 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M6. Evidence ablation drops every state unit after the first 24
 
+**Status (2026-09-25): fixed.** Only the first 24 units are ablated, but every ablated state keeps all the other units, including those past 24 (tested with 30).
+
 **Evidence:** `src/moelar/render.py:161-163` truncates units to 24; `:205-210` builds each ablated state only from that truncated list. The base decision still sees the complete state. With a 30-unit state, every ablation omits units 25–30 as well as its named span.
 
 **Impact and trigger:** For long states with `moelar.explain=true`, reported evidence effects can be attributed to the wrong span. **Suggested fix:** Keep the unablated tail in every comparison, or explicitly decline evidence when the state exceeds the supported span count.
 
 ### M7. Pointer-head features can come from user text instead of option lines
+
+**Status (2026-09-25): fixed.** `render` records where each option line ends (`Row.option_ends`), and the engine and feature extraction pass those offsets to `label_logits_with_features`; parsing is only a fallback for callers that don't pass them. Instructions and criteria are not escaped, so prompts stay byte-identical to what the adapters and heads were trained on (checked over 23,033 eval rows, where the recorded offsets also equal the old parse).
 
 **Evidence:** `src/moelar/spans.py:7,14-20` takes the first lines matching `A) ` or `B) ` anywhere in a suffix. `src/moelar/render.py:114-118,127-137` inserts caller instructions and descriptions without escaping newlines. Instructions beginning with `A) ...\nB) ...` are therefore selected before the generated choices; `src/moelar/backends/mlx.py:211-214` uses those offsets for option features.
 

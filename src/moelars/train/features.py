@@ -46,7 +46,7 @@ def projection(hidden_size: int, proj_dim: int, seed: int = 0) -> np.ndarray:
     return (rng.standard_normal((hidden_size, proj_dim)) / np.sqrt(proj_dim)).astype(np.float32)
 
 
-def _render(record: Record, labels: list[str], order: list[int]) -> tuple[str, tuple[str, ...]]:
+def _render(record: Record, labels: list[str], order: list[int]) -> tuple[str, tuple[str, ...], tuple[int, ...]]:
     question = record.to_question()
     if record.kind == "noul":
         return render_noul(NoulQuestion(**question), labels)
@@ -75,13 +75,15 @@ def extract(
                 orders.append(order)
         state_text = render_content(record.state)
         suffixes: list[str] = []
+        option_ends: list[tuple[int, ...]] = []
         prefix = ""
         for order in orders:
-            body, _keys = _render(record, labels, order)
+            body, _keys, ends = _render(record, labels, order)
             prefix, suffix = compose_prompt(template, state_text, body)
             suffixes.append(suffix)
+            option_ends.append(ends)
         # Same code path as serving, with the prefix prefilled once for all presentations.
-        features = backend.label_logits_with_features(prefix, suffixes, [tuple(labels[:k])] * len(orders))
+        features = backend.label_logits_with_features(prefix, suffixes, [tuple(labels[:k])] * len(orders), option_ends)
         for order, (z, h_ans, h_opt) in zip(orders, features, strict=True):
             target = np.asarray([record.target[i] for i in order], dtype=np.float32)
             yield Presentation(
