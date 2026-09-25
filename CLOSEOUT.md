@@ -41,15 +41,16 @@ should be on the corpus we actually ship. The review fixes use no GPU and run al
 
 ## 1. Latency decides the architecture
 
-- [ ] Quiet machine (nothing else on the GPU). Run:
+- [x] Quiet machine (nothing else on the GPU). Run:
   ```
   M30=mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit
   uv run python scripts/load_cost.py $M30 $M30@checkpoints/lora-30b $M30@checkpoints/lora-30b-experts
   ```
   Record load time, peak memory, and warm ms per request in `evals/RESULTS.md`.
+  **Done 2026-09-25:** 265 ms zero-shot, 299 ms attention, 384 ms experts; two adapters about 0.7 s.
 - [ ] Two-adapter estimate for now: the sum of the two adapter rows. Measure it for real once §2
   builds it.
-- [ ] Only if the 30B + LoRA takes over 2 s: fuse the 4B here (`mlx_lm.fuse`, local snapshot
+- [x] ~~Only if the 30B + LoRA takes over 2 s:~~ not needed (0.3 s). fuse the 4B here (`mlx_lm.fuse`, local snapshot
   path) and time `lora-4b-fused-bf16`, which brings 4B-to-30B routing (0.757 at 46%
   escalated) back into play.
 
@@ -108,11 +109,11 @@ macro) and averaging goes in the release notes as future work.
 
 Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M1.
 
-- [ ] **M3** Reject a request `model` that isn't the loaded model's ID or its documented
+- [x] **M3** Reject a request `model` that isn't the loaded model's ID or its documented
   alias (`moelars` or the preset name); 400 `invalid_request`.
-- [ ] **M4** Split the prompt at the offset where the sentinel was inserted, not at the first
+- [x] **M4** Split the prompt at the offset where the sentinel was inserted, not at the first
   match; test with the sentinel inside state.
-- [ ] **M5** Apply constraints until nothing changes (with an iteration cap) and check the
+- [x] **M5** Apply constraints until nothing changes (with an iteration cap) and check the
   invariants; round only at the end; test the exclusive+complement case from the review.
 - [ ] **M6** Keep units after 24 in every ablated state (or decline evidence past 24 units
   with a warning); test with a 30-unit state.

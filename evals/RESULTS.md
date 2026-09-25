@@ -591,3 +591,19 @@ primary and the expert dumps as fallback):
   before it counts.
 - It costs two 30B passes per row, or one base model serving two adapters. That is a
   serving question, not a training one, and the same `load_cost.py` run should answer it.
+
+## 2026-09-25: serving cost of the 30B-A3B adapters
+
+`scripts/load_cost.py` on the 128 GB M5 Max, no other GPU work running (a long-running VM
+idle in the background), one three-question request, 20 warm runs:
+
+| model | load | peak memory | warm request |
+|---|---|---|---|
+| 30B-A3B zero-shot | 2.8 s | 17.4 GB | 265 ms |
+| 30B-A3B + attention LoRA (unfused) | 0.8 s | 17.4 GB | 299 ms |
+| 30B-A3B + attention-plus-experts LoRA (unfused) | 0.8 s | 19.3 GB | 384 ms |
+
+Averaging both adapters costs about 0.7 s per request by summing these, well inside a 2 s
+budget, so latency does not rule out any 30B configuration and the 4B routing pair is not
+needed. The two-adapter number gets measured for real once it is built (`CLOSEOUT.md` §2b).
+(Load times after the first are warm from the page cache.)

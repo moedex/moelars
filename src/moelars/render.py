@@ -217,8 +217,10 @@ def compose_prompt(template: TemplateFn, state_text: str, suffix_body: str) -> t
 
     The template is applied with a sentinel in place of the question so the split point
     lands after the fenced state, inside the user turn. The suffix carries the question,
-    the rest of the template, and the `Answer:` prefill.
+    the rest of the template, and the `Answer:` prefill. The split is at the sentinel's last
+    occurrence: only template text follows the inserted one, while caller state before it
+    may contain the sentinel too.
     """
     full = template(SYSTEM_PROMPT, fence_state(state_text) + "\n\n" + SENTINEL)
-    prefix, rest = full.split(SENTINEL, 1)
+    prefix, rest = full.rsplit(SENTINEL, 1)
     return prefix, f"{suffix_body}{rest}Answer:"

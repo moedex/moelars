@@ -142,3 +142,20 @@ def test_slow_inference_does_not_block_health_checks(monkeypatch):
     health, results = anyio.run(scenario)
     assert health.status_code == 200 and results["health_s"] < 1.0
     assert results["post"].status_code == 200
+
+
+@pytest.mark.parametrize("model", ["moelars-latest", "jev-latest"])
+def test_default_aliases_are_served(client, model):
+    assert client.post("/v1/systemone", json={**BODY, "model": model}).status_code == 200
+
+
+def test_loaded_model_id_is_served(client):
+    model_id = client.get("/healthz").json()["model"]
+    assert client.post("/v1/systemone", json={**BODY, "model": model_id}).status_code == 200
+
+
+def test_unknown_model_is_refused(client):
+    response = client.post("/v1/systemone", json={**BODY, "model": "totally-unknown"})
+    assert response.status_code == 422
+    assert response.json()["error_type"] == "invalid_request"
+    assert "totally-unknown" in response.json()["message"]

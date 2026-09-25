@@ -24,17 +24,23 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M3. The requested model is silently ignored
 
+**Status (2026-09-25): fixed.** `Engine.evaluate` serves `moelars-latest`, `jev-latest` (the official SDKs' default, so a base-URL swap still works) and the loaded model's exact ID, and refuses any other name with 422 `invalid_request` before any model pass (tested over HTTP).
+
 **Evidence:** `src/moelar/schema.py:128` accepts any model string. `src/moelar/engine.py:93-99` does not read it and always returns the loaded engine's model ID. A POST specifying `model: "totally-unknown"` returned 200 with the mock model ID.
 
 **Impact and trigger:** A caller can believe it used a requested model while receiving decisions from another, invalidating routing or evaluation assumptions. **Suggested fix:** Reject IDs other than the loaded model and documented alias, or implement actual model selection.
 
 ### M4. A sentinel inside caller state changes the prompt boundary
 
+**Status (2026-09-25): fixed.** `compose_prompt` splits at the sentinel's last occurrence; only template text follows the inserted one. Prompts for ordinary state are byte-identical (tested for every template).
+
 **Evidence:** `src/moelar/render.py:29,222-224` inserts a fixed sentinel and splits at its *first* occurrence. Supplying the literal sentinel in the state caused `compose_prompt` to place `QUESTION: x` before the closing state fence and leave the inserted sentinel after it.
 
 **Impact and trigger:** State text containing `\u0000MOELAR_QUESTION\u0000` corrupts the prompt structure and can move the question into the data region. **Suggested fix:** Split at a known insertion offset or use a marker guaranteed absent from all caller content.
 
 ### M5. Overlapping constraints can leave answers violating a declared constraint
+
+**Status (2026-09-25): fixed.** Constraints that share no question behave as before. When they overlap, answers become the least-squares nearest probabilities satisfying all of them (Dykstra's projections over each constraint and the unit box). Exclusive members round down, and a complement's second answer is 1 minus its rounded first, so rounding cannot break either. The review's case gives 0.5, 0.5, 0.0.
 
 **Evidence:** `src/moelar/engine.py:252-267` applies constraints once in request order. Applying `exclusive(a,b,c)` to three 0.9 nouls and then `complement(a,b)` produced `a=0.5, b=0.5, c=0.3333`; the exclusive sum is 1.3333. Independent rounding can also make a normalized exclusive group sum to 1.0002.
 

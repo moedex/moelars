@@ -2,7 +2,7 @@ import pytest
 
 from moelars.backends.mock import MockBackend
 from moelars.engine import Engine
-from moelars.schema import ChoiceAnswer, MultiAnswer, NoulAnswer, ScoreAnswer, SystemOneRequest
+from moelars.schema import ChoiceAnswer, Constraint, MultiAnswer, NoulAnswer, ScoreAnswer, SystemOneRequest
 
 STATE = "Help! My payouts have been failing for 3 days. This is the second time I have written in."
 QUESTIONS = {
@@ -102,6 +102,29 @@ def test_exclusive_constraint_rescales(engine):
     )
     answers = engine.evaluate(request).answers
     assert sum(a.noul for a in answers.values()) <= 1.0 + 1e-6
+
+
+def _nouls(*values: float) -> dict:
+    return {f"q{i}": NoulAnswer(noul=v) for i, v in enumerate(values)}
+
+
+def test_overlapping_constraints_hold_jointly():
+    # The review's case: exclusive over three 0.9 nouls, then a complement over two of them.
+    answers = _nouls(0.9, 0.9, 0.9)
+    constraints = [
+        Constraint(kind="exclusive", questions=["q0", "q1", "q2"]),
+        Constraint(kind="complement", questions=["q0", "q1"]),
+    ]
+    Engine._apply_constraints(answers, constraints)
+    p = [answers[f"q{i}"].noul for i in range(3)]
+    assert p[0] + p[1] == pytest.approx(1.0, abs=1e-9)
+    assert sum(p) <= 1.0 + 1e-4
+
+
+def test_exclusive_rounding_cannot_push_the_sum_over_one():
+    answers = _nouls(1 / 3 + 1e-5, 1 / 3 + 1e-5, 1 / 3 + 1e-5)
+    Engine._apply_constraints(answers, [Constraint(kind="exclusive", questions=["q0", "q1", "q2"])])
+    assert sum(a.noul for a in answers.values()) <= 1.0
 
 
 def test_explain_returns_evidence(engine):

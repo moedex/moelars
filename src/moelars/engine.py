@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -48,16 +49,26 @@ from moelars.schema import (
 )
 
 MODEL_ALIAS = "moelars-latest"
+# The official SDKs send "jev-latest" unless told otherwise, so it names the loaded model too;
+# that keeps a base-URL swap sufficient. Any other name is refused rather than silently served.
+DEFAULT_ALIASES = (MODEL_ALIAS, "jev-latest")
 MAX_EVIDENCE = 3
 # Per-request budgets, checked before any model pass. A schema-valid request can plan
 # thousands of rows (a 255-option multi question with explain=true and 24 state units is
 # 6,375), so these bound what one caller can ask of the model.
 DEFAULT_MAX_ROWS = 512
 DEFAULT_MAX_INPUT_TOKENS = 32768
+# Dykstra passes over overlapping constraints; random cases converge in under 100.
+CONSTRAINT_ROUNDS = 2000
+CONSTRAINT_TOLERANCE = 1e-10
 
 
 class BudgetError(ValueError):
     """A request that would exceed the engine's row or input-token budget."""
+
+
+class UnknownModelError(ValueError):
+    """A request naming a model this engine does not serve."""
 
 
 @dataclass
@@ -105,6 +116,9 @@ class Engine:
         ]
 
     def evaluate(self, request: SystemOneRequest) -> SystemOneResponse:
+        if request.model not in (*DEFAULT_ALIASES, self.model_id):
+            raise UnknownModelError(f"model {request.model!r} is not served here; use {MODEL_ALIAS!r} "
+                                    f"or {self.model_id!r}")
         rows = plan_rows(request, self.labels)
         if self.max_rows is not None and len(rows) > self.max_rows:
             raise BudgetError(f"request plans {len(rows)} model rows, over the budget of {self.max_rows}; "
@@ -274,21 +288,42 @@ class Engine:
 
     @staticmethod
     def _apply_constraints(answers: dict[str, Answer], constraints: list[Constraint]) -> None:
-        for constraint in constraints:
-            nouls = [answers[q] for q in constraint.questions]
-            if not all(isinstance(a, NoulAnswer) for a in nouls):
-                continue
+        """Enforce the declared constraints on noul answers, jointly.
+
+        Constraints that share no question are applied as declared: a complement averages
+        the pair, an exclusive group over 1 is rescaled. When constraints share a question,
+        one pass in order can undo an earlier one (exclusive over a, b, c, then complement
+        over a, b), so the answers become the nearest probabilities, in least squares, that
+        satisfy all of them (Dykstra's alternating projections). Rounding comes last:
+        exclusive members round down so their sum cannot exceed 1, and a complement's
+        second answer is 1 minus its rounded first.
+        """
+        applicable = [c for c in constraints if all(isinstance(answers[q], NoulAnswer) for q in c.questions)]
+        if not applicable:
+            return
+        p = {q: float(answers[q].noul) for c in applicable for q in c.questions}  # type: ignore[union-attr]
+        members = [q for c in applicable for q in c.questions]
+        if len(members) == len(set(members)):
+            for constraint in applicable:
+                qs = constraint.questions
+                if constraint.kind == "complement":
+                    x = (p[qs[0]] + 1.0 - p[qs[1]]) / 2.0
+                    p[qs[0]], p[qs[1]] = x, 1.0 - x
+                else:
+                    total = sum(p[q] for q in qs)
+                    if total > 1.0:
+                        for q in qs:
+                            p[q] /= total
+        else:
+            p = _project_constraints(p, applicable)
+        exclusive = {q for c in applicable if c.kind == "exclusive" for q in c.questions}
+        rounded = {q: (math.floor(v * 1e4) / 1e4 if q in exclusive else round(v, 4)) for q, v in p.items()}
+        for constraint in applicable:
             if constraint.kind == "complement":
-                first, second = nouls[0], nouls[1]
-                assert isinstance(first, NoulAnswer) and isinstance(second, NoulAnswer)
-                p = (first.noul + (1.0 - second.noul)) / 2.0
-                first.noul, second.noul = round(p, 4), round(1.0 - p, 4)
-            elif constraint.kind == "exclusive":
-                total = sum(a.noul for a in nouls if isinstance(a, NoulAnswer))
-                if total > 1.0:
-                    for a in nouls:
-                        assert isinstance(a, NoulAnswer)
-                        a.noul = round(a.noul / total, 4)
+                first, second = constraint.questions
+                rounded[second] = round(1.0 - rounded[first], 4)
+        for q, value in rounded.items():
+            answers[q].noul = value  # type: ignore[union-attr]
 
     # ----------------------------------------------------------------- usage
 
@@ -305,3 +340,36 @@ class Engine:
                 tokens += self.backend.count_tokens(prefix)
             tokens += self.backend.count_tokens(suffix)
         return Usage(input_tokens=tokens, output_tokens=len(rows))
+
+
+def _project_constraints(p: dict[str, float], constraints: list[Constraint]) -> dict[str, float]:
+    """Nearest point to `p` in least squares with every constraint and 0 <= p <= 1 satisfied.
+
+    Dykstra's algorithm over the sets: each complement's line p_a + p_b = 1, each exclusive
+    group's half-space sum <= 1, and the unit box. Every step is an orthogonal projection;
+    the per-set increments make the limit the projection onto their intersection.
+    """
+    keys = list(p)
+    index = {q: i for i, q in enumerate(keys)}
+    x = np.array([p[q] for q in keys], dtype=np.float64)
+    sets = [(c.kind, [index[q] for q in c.questions]) for c in constraints] + [("box", [])]
+    increments = [np.zeros_like(x) for _ in sets]
+    for _ in range(CONSTRAINT_ROUNDS):
+        previous = x.copy()
+        for k, (kind, idx) in enumerate(sets):
+            y = x + increments[k]
+            z = y.copy()
+            if kind == "complement":
+                shift = (y[idx[0]] + y[idx[1]] - 1.0) / 2.0
+                z[idx] -= shift
+            elif kind == "exclusive":
+                total = y[idx].sum()
+                if total > 1.0:
+                    z[idx] -= (total - 1.0) / len(idx)
+            else:
+                z = np.clip(y, 0.0, 1.0)
+            increments[k] = y - z
+            x = z
+        if np.abs(x - previous).max() < CONSTRAINT_TOLERANCE:
+            break
+    return {q: float(x[i]) for q, i in index.items()}
