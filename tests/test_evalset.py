@@ -6,7 +6,7 @@ import pytest
 from moelars.backends.mock import MockBackend
 from moelars.calibration import Calibrator
 from moelars.engine import Engine
-from moelars.evalset import calibrate, evaluate, read_examples
+from moelars.evalset import calibrate, collect_timed, evaluate, read_examples
 from moelars.schema import SystemOneRequest
 
 
@@ -51,6 +51,39 @@ def test_calibrate_fits_platt_for_nouls_and_temperature_for_choice(tmp_path):
     assert result.count == 36
     assert result.platt is not None and result.platt["noul"] is not None
     assert 0 <= result.accuracy <= 1
+
+
+def test_one_collection_serves_raw_calibration_and_calibrated_scores(tmp_path):
+    noul = {"type": "noul", "instructions": "Mentions payouts"}
+    choice = {"type": "choice", "instructions": "Team?", "criteria": {"billing": None, "technical": None}}
+    rows = []
+    for i in range(6):
+        rows.append({"state": f"message {i} about payouts", "question": noul, "label": "1"})
+        rows.append({"state": f"message {i} about weather", "question": noul, "label": "0"})
+        rows.append({"state": f"ticket {i}: billing problem", "question": choice, "label": "billing"})
+    examples = list(read_examples(_write(tmp_path, rows)))
+    backend = MockBackend()
+    calls = 0
+    score = backend.label_logits
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return score(*args, **kwargs)
+
+    backend.label_logits = counted  # type: ignore[method-assign]
+    collected = collect_timed(Engine(backend), examples)
+    assert calls == len(examples)
+    calibrator = calibrate(Engine(backend), examples, collected=collected)
+    reused_rows: list[dict] = []
+    reused = evaluate(Engine(backend, calibrator=calibrator), examples, rows=reused_rows, collected=collected)
+    assert calls == len(examples)  # nothing ran the model again
+
+    fresh_rows: list[dict] = []
+    fresh = evaluate(Engine(MockBackend(), calibrator=calibrate(Engine(MockBackend()), examples)), examples,
+                     rows=fresh_rows)
+    assert reused_rows == fresh_rows
+    assert (reused.accuracy, reused.brier, reused.ece) == (fresh.accuracy, fresh.brier, fresh.ece)
 
 
 def test_platt_bias_moves_noul_across_half():

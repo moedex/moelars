@@ -607,3 +607,46 @@ Averaging both adapters costs about 0.7 s per request by summing these, well ins
 budget, so latency does not rule out any 30B configuration and the 4B routing pair is not
 needed. The two-adapter number gets measured for real once it is built (`CLOSEOUT.md` §2b).
 (Load times after the first are warm from the page cache.)
+
+## 2026-09-25: corpus C, two seeds of the attention LoRA
+
+Attention-only LoRA on the commercially licensed corpus (DESIGN.md §8.1: no yelp5, sst5,
+stsb or ANLI; 3,300 SNLI rows backfilled), same held-out sources as the earlier run, seeds
+0 and 1. Paired bootstrap over test rows (`evals/bootstrap.py`, 10,000 resamples):
+
+| system | macro acc | Brier | vs seed 0 (95% CI) |
+|---|---|---|---|
+| seed 0 | 0.748 | 0.304 | baseline |
+| seed 1 | 0.745 | 0.310 | -0.3 pts (-1.1 to +0.4) |
+| seed 0 + seed 1 averaged | 0.753 | 0.301 | +0.5 pts (-0.0 to +1.0) |
+
+- Dropping the unlicensed rows costs 0.4 points against the old corpus (0.752), mostly on
+  score configs (0.555 to 0.540), as expected with sst5 and stsb no longer trained on.
+- The seeds are indistinguishable, so one seed is a fair estimate of the recipe.
+- Averaging two seeds of the same adapter buys about half a point. That is the control a
+  two-adapter pair has to beat for the second adapter's design to matter; the old
+  attention plus attention-and-experts pair gave +1.3 (0.7 to 1.9).
+
+## 2026-09-25: Laya, another local System One server
+
+[Laya](https://huggingface.co/convaiinnovations/laya) 0.3.20, the English checkpoint
+(ModernBERT-large, 0.4B, Apache 2.0), served by its own `laya-serve` on CPU with 4 torch
+threads, scored by `run_suite.py --endpoint` with the same rows, per-config calibration
+and metrics as every other run here (`evals/remote.py`). It refuses clinc150 (151 options
+exceed its 192-token option budget), so the comparison is over the other 21 configs:
+
+| system | macro acc | Brier | ECE | median ms/row |
+|---|---|---|---|---|
+| Laya, CPU | 0.559 | 0.506 | 0.095 | 171 |
+| Qwen3-30B-A3B zero-shot, Metal | 0.675 | 0.373 | 0.077 | 241 |
+| 30B + attention LoRA (corpus C, seed 0), Metal | 0.741 | 0.310 | 0.066 | 223 |
+
+- Against Laya, the zero-shot 30B is +11.6 points (10.0 to 13.2) and the LoRA +18.3 (16.7
+  to 19.8).
+- Laya beats the LoRA on two configs (civil_comments 0.960 vs 0.940, paws 0.910 vs 0.865)
+  and the zero-shot 30B on six, including helpsteer2_verbosity (0.670 vs 0.110) and mnli.
+- Its gaps are knowledge and many-option tasks: arc_challenge 0.350 and mmlu 0.330 (near
+  the 0.25 of four options), ledgar 0.255, banking77 0.365, massive 0.485.
+- It answers on four CPU threads about as fast as the 30B does on the GPU, at 0.8 GB
+  against about 18 GB. It is the better fit where only a CPU is available; the 4B GGUF
+  through llama.cpp took about 2.5 s per row on CPU in Docker.

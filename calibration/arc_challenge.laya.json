@@ -1,0 +1,11 @@
+{
+  "temperatures": {
+    "noul": 1.0,
+    "choice": 5.41581139130499,
+    "score": 1.0,
+    "multi": 1.0
+  },
+  "platt": {},
+  "fusion": {},
+  "fitted_on": "jev-bench/arc_challenge/validation[:200]"
+}

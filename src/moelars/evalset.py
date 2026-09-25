@@ -121,14 +121,36 @@ def collect(engine: Engine, examples: list[Example]) -> list[tuple[Example, str,
     return rows
 
 
-def evaluate(engine: Engine, examples: list[Example], rows: list[dict] | None = None) -> EvalResult:
-    """Score examples; when `rows` is given, append each example's probabilities and hit to it in input order."""
+@dataclass
+class Collected:
+    """Raw logits for a list of examples and the time the model took to produce them.
+
+    Raw logits do not depend on the calibrator, so one collection serves the raw score, the
+    calibration fit, and the calibrated score and row dump of the same examples.
+    """
+
+    rows: list[tuple[Example, str, tuple[str, ...], np.ndarray]]
+    ms_per_example: float
+
+
+def collect_timed(engine: Engine, examples: list[Example]) -> Collected:
     started = time.perf_counter()
-    collected = collect(engine, examples)
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    rows = collect(engine, examples)
+    return Collected(rows, (time.perf_counter() - started) * 1000.0 / max(len(rows), 1))
+
+
+def evaluate(
+    engine: Engine, examples: list[Example], rows: list[dict] | None = None, collected: Collected | None = None
+) -> EvalResult:
+    """Score examples; when `rows` is given, append each example's probabilities and hit to it in input order.
+
+    `collected` reuses raw logits from `collect_timed` on the same examples instead of running the model again.
+    """
+    if collected is None:
+        collected = collect_timed(engine, examples)
     confidences, correct, probs, targets = [], [], [], []
     per_kind: dict[str, list[bool]] = {}
-    for example, kind, keys, logits in collected:
+    for example, kind, keys, logits in collected.rows:
         if kind in {"noul", "multi"}:
             p_yes = engine.noul_prob(float(logits[0] - logits[1]), kind, features=example.features)
             p = np.asarray([p_yes, 1.0 - p_yes])
@@ -150,24 +172,27 @@ def evaluate(engine: Engine, examples: list[Example], rows: list[dict] | None = 
     hits = np.asarray(correct, dtype=float)
     cov, thr = coverage_at_error(conf, hits, 0.05)
     return EvalResult(
-        count=len(collected),
+        count=len(collected.rows),
         accuracy=float(hits.mean()) if len(hits) else 0.0,
         ece=ece(conf, hits),
         brier=brier(probs, targets),
         coverage_at_5pct=cov,
         threshold_at_5pct=thr,
         per_kind={k: {"count": len(v), "accuracy": float(np.mean(v))} for k, v in per_kind.items()},
-        ms_per_example=elapsed_ms / max(len(collected), 1),
-        temperatures={k: engine.calibrator.temperature_for(k) for k in sorted({c[1] for c in collected})},
-        platt={k: engine.calibrator.platt_for(k) for k in sorted({c[1] for c in collected})},
+        ms_per_example=collected.ms_per_example,
+        temperatures={k: engine.calibrator.temperature_for(k) for k in sorted({c[1] for c in collected.rows})},
+        platt={k: engine.calibrator.platt_for(k) for k in sorted({c[1] for c in collected.rows})},
     )
 
 
-def calibrate(engine: Engine, examples: list[Example], source: str | None = None) -> Calibrator:
-    collected = collect(engine, examples)
+def calibrate(
+    engine: Engine, examples: list[Example], source: str | None = None, collected: Collected | None = None
+) -> Calibrator:
+    """Fit per-kind temperatures and Platt scalings; `collected` reuses raw logits as in `evaluate`."""
+    collected_rows = (collected or collect_timed(engine, examples)).rows
     calibrator = Calibrator(fitted_on=source)
     by_kind: dict[str, tuple[list[np.ndarray], list[np.ndarray]]] = {}
-    for example, kind, keys, logits in collected:
+    for example, kind, keys, logits in collected_rows:
         target = _noul_target(example) if kind in {"noul", "multi"} else _target_vector(example, keys)
         logits_list, targets_list = by_kind.setdefault(kind, ([], []))
         logits_list.append(np.asarray(logits))
@@ -179,7 +204,7 @@ def calibrate(engine: Engine, examples: list[Example], source: str | None = None
             y = np.asarray([float(t[0]) for t in targets_list])
             calibrator.platt[kind] = fit_platt(z, y)
             calibrator.temperatures[kind] = 1.0
-            evidence = [example.features for example, k, _, _ in collected if k == kind]
+            evidence = [example.features for example, k, _, _ in collected_rows if k == kind]
             if evidence and all(evidence):
                 calibrator.fusion[kind] = fit_fusion(z, evidence, y)  # type: ignore[arg-type]
         else:

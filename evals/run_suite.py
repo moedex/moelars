@@ -10,6 +10,10 @@ head-plus-per-config-calibration run sits next to the Tier A run for the same mo
 
     uv run python evals/run_suite.py --backend mlx --model <model> --head checkpoints/pointer_head.npz \
         --projection data/features/projection.npy --tag head
+
+Another System One server, scored and calibrated the same way (`evals/remote.py`):
+
+    uv run python evals/run_suite.py --endpoint http://127.0.0.1:8700 --model convaiinnovations/laya
 """
 
 from __future__ import annotations
@@ -27,9 +31,11 @@ from moelars import __version__
 from moelars.backends import load_backend
 from moelars.calibration import Calibrator
 from moelars.engine import Engine
-from moelars.evalset import calibrate, evaluate, read_examples
+from moelars.evalset import calibrate, collect_timed, evaluate, read_examples
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from remote import Refused, RemoteClient, RemoteEngine  # noqa: E402
 
 # mnli before chaosnli so chaosnli can borrow mnli's calibrator (it has no validation split).
 ALL_CONFIGS = [
@@ -94,6 +100,8 @@ def render_table(results: dict, jev: dict, path: Path) -> None:
             {"kind": kind, "acc": c["accuracy"], "ece": c["ece"], "brier": c["brier"],
              "jev_acc": pub.get("acc"), "jev_ece": pub.get("ece"), "jev_brier": pub.get("brier")}
         )
+    for cfg, reason in results.get("refused", {}).items():
+        lines.append(f"| {cfg} | refused: {reason} |" + " |" * 12)
     lines += ["", "## Macro averages over the configs above (calibrated)", "",
               "| scope | n | acc | ECE | Brier | Jev acc | Jev ECE | Jev Brier |", "|---|---|---|---|---|---|---|---|"]
     for scope in ["all", "choice", "score", "noul"]:
@@ -125,7 +133,7 @@ def fingerprint(args: argparse.Namespace, cfg: str) -> str:
     parts = {"model": args.model, "backend": args.backend, "template": args.template, "rows": args.rows,
              "adapter": _file_stamp(args.adapter), "head": _file_stamp(args.head),
              "projection": _file_stamp(args.projection), "data": data.hexdigest()[:16], "version": __version__,
-             "calibration": _file_stamp(args.calibration)}
+             "calibration": _file_stamp(args.calibration), "endpoint": args.endpoint}
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -146,10 +154,15 @@ def main() -> int:
     parser.add_argument("--calibration", default=None,
                         help="one calibrator JSON for every config, as served; fitted on the pooled validation "
                              "rows of the selected configs and saved here if the file does not exist")
+    parser.add_argument("--endpoint", default=None,
+                        help="score a System One server at this base URL instead of a local backend; "
+                             "--model then only names the results")
+    parser.add_argument("--api-key", default=None, help="bearer token for --endpoint")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dump-rows", action="store_true",
                         help="also write calibrated per-row probabilities for test and validation to "
-                             "<out-dir>/rows/<slug>/<config>.json (costs one more validation pass)")
+                             "<out-dir>/rows/<slug>/<config>.json (reuses the calibration pass over validation; "
+                             "with --calibration it costs one more validation pass)")
     args = parser.parse_args()
 
     slug = slugify(args.model) + (f"-{args.tag}" if args.tag else "")
@@ -159,6 +172,8 @@ def main() -> int:
     Path(args.calibration_dir).mkdir(parents=True, exist_ok=True)
     jev = json.loads((HERE / "jev_published.json").read_text())
 
+    if args.endpoint:
+        args.backend = "systemone-http"  # before the cache check: it is part of each config's fingerprint
     results = json.loads(out_json.read_text()) if out_json.exists() and not args.force else {}
     # The run metadata below is rewritten for this run, so an entry from a different setup
     # (rows, backend, adapter, head, template, data) must not stay under it.
@@ -171,8 +186,10 @@ def main() -> int:
     results.setdefault("configs", {})
 
     load_started = time.perf_counter()
-    backend = load_backend(args.backend, model=args.model, template=args.template, adapter=args.adapter)
-    results["load_s"] = round(time.perf_counter() - load_started, 1)
+    client = RemoteClient(args.endpoint, api_key=args.api_key) if args.endpoint else None
+    backend = None if client else load_backend(args.backend, model=args.model, template=args.template,
+                                               adapter=args.adapter)
+    results["load_s"] = None if client else round(time.perf_counter() - load_started, 1)
     head = None
     if args.head:
         from moelars.heads import PointerHeadScorer
@@ -181,6 +198,8 @@ def main() -> int:
     calibrators: dict[str, Calibrator] = {}
 
     def engine(calibrator: Calibrator | None = None) -> Engine:
+        if client:
+            return RemoteEngine(client, calibrator)  # type: ignore[return-value]
         return Engine(backend, calibrator=calibrator, head=head)
 
     configs = [c.strip() for c in args.configs.split(",") if c.strip()]
@@ -208,14 +227,28 @@ def main() -> int:
             continue
         test = list(read_examples(test_path))[: args.rows]
         started = time.perf_counter()
-        raw = evaluate(engine(), test)
+        # Raw logits do not depend on the calibrator: each split goes through the model once, and the raw
+        # score, calibration fit, calibrated score and row dump all read from that one collection.
+        try:
+            test_collected = collect_timed(engine(), test)
+        except Refused as error:
+            results.setdefault("refused", {})[cfg] = str(error)
+            out_json.write_text(json.dumps(results, indent=2))
+            render_table(results, jev, out_md)
+            print(f"[{cfg}] refused by the server: {error}", flush=True)
+            continue
+        raw = evaluate(engine(), test, collected=test_collected)
+        has_val = val_path.exists() and val_path.stat().st_size > 0
+        val = list(read_examples(val_path))[: args.rows] if has_val else []
+        val_collected = None
 
         calibrator: Calibrator | None = pooled
         if pooled is not None:
             pass
-        elif val_path.exists() and val_path.stat().st_size > 0:
-            val = list(read_examples(val_path))[: args.rows]
-            calibrator = calibrate(engine(), val, source=f"jev-bench/{cfg}/validation[:{len(val)}]")
+        elif val:
+            val_collected = collect_timed(engine(), val)
+            calibrator = calibrate(engine(), val, source=f"jev-bench/{cfg}/validation[:{len(val)}]",
+                                   collected=val_collected)
         elif cfg in CALIBRATION_FALLBACK:
             fallback = CALIBRATION_FALLBACK[cfg]
             fallback_path = Path(args.calibration_dir) / f"{fallback}.{slug}.json"
@@ -227,13 +260,14 @@ def main() -> int:
             calibrators[cfg] = calibrator
             calibrator.save(Path(args.calibration_dir) / f"{cfg}.{slug}.json")
         test_rows: list[dict] | None = [] if args.dump_rows else None
-        calibrated = evaluate(engine(calibrator), test, rows=test_rows) if calibrator else None
+        calibrated = (evaluate(engine(calibrator), test, rows=test_rows, collected=test_collected)
+                      if calibrator else None)
         if args.dump_rows:
             if calibrated is None:
-                evaluate(engine(), test, rows=test_rows)
+                evaluate(engine(), test, rows=test_rows, collected=test_collected)
             val_rows: list[dict] = []
-            if val_path.exists() and val_path.stat().st_size > 0:
-                evaluate(engine(calibrator), list(read_examples(val_path))[: args.rows], rows=val_rows)
+            if val:
+                evaluate(engine(calibrator), val, rows=val_rows, collected=val_collected)
             rows_path.parent.mkdir(parents=True, exist_ok=True)
             rows_path.write_text(json.dumps({"test": test_rows, "validation": val_rows}))
 
