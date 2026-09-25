@@ -180,3 +180,11 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
 - Per-option labels for `multi` in eval/calibrate (M8's full fix).
 - Gating the pointer head on K, shortlist-then-rerank for high K, complement-consistency loss.
 - A hardware pass for the llama.cpp backend.
+- Merged adapters as GGUF for CPU deployment, for machines without Apple Silicon or a GPU.
+  Fuse each LoRA into a de-quantized base (`mlx_lm.fuse --de-quantize`), convert with
+  llama.cpp's `convert_hf_to_gguf.py`, quantize to Q4_K_M, and publish next to the MLX
+  adapters. A two-adapter ensemble cannot merge into one file (it averages outputs, not
+  weights), so it ships as two GGUFs at twice the CPU cost. The bar to beat on CPU: the 4B
+  GGUF took about 2.5 s per row in Docker, and Laya answers in about 0.17 s at 0.559 macro
+  (`evals/RESULTS.md`, 2026-09-25). The 30B-A3B has only 3B active parameters, so a Q4 GGUF
+  (about 18 GB of RAM) may be practical; measure it before promising it.
