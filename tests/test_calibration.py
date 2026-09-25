@@ -1,6 +1,14 @@
 import numpy as np
 
-from moelars.calibration import Calibrator, brier, coverage_at_error, ece, fit_platt, fit_temperature
+from moelars.calibration import (
+    Calibrator,
+    _platt_targets,
+    brier,
+    coverage_at_error,
+    ece,
+    fit_platt,
+    fit_temperature,
+)
 
 
 def test_fit_temperature_recovers_flatter_scale_for_overconfident_logits():
@@ -64,3 +72,16 @@ def test_calibrator_roundtrip(tmp_path):
     assert loaded.temperature_for("noul") == 1.7
     assert loaded.platt_for("noul") == (0.9, 0.2)
     assert loaded.temperature_for("choice") == 1.0
+
+
+def test_coverage_never_reports_a_threshold_over_its_error_budget():
+    # The review's case: two decisions at the same confidence, one wrong.
+    assert coverage_at_error(np.array([0.9, 0.9]), np.array([1, 0]), 0.0) == (0.0, 1.0)
+    cov, thr = coverage_at_error(np.array([0.95, 0.9, 0.9, 0.8]), np.array([1, 1, 0, 1]), 0.0)
+    assert (cov, thr) == (0.25, 0.95)
+
+
+def test_platt_keeps_soft_targets():
+    y = _platt_targets(np.array([1.0, 0.0, 0.6, 1.0]))
+    assert y[2] == 0.6
+    assert 0.5 < y[0] < 1.0 and 0.0 < y[1] < 0.5

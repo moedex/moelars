@@ -98,11 +98,24 @@ def _noul_keys_label(label: str) -> str:
     return "yes" if label in {"1", "true", "yes"} else "no"
 
 
+def _noul_target(example: Example) -> np.ndarray:
+    """[P(yes), P(no)]: the normalized soft label when there is one, else the hard label."""
+    if example.soft_label:
+        yes = sum(float(v) for k, v in example.soft_label.items() if _noul_keys_label(str(k).lower()) == "yes")
+        total = sum(float(v) for v in example.soft_label.values())
+        if total > 0:
+            return np.asarray([yes / total, 1.0 - yes / total])
+    return np.asarray([1.0, 0.0]) if _noul_keys_label(example.label) == "yes" else np.asarray([0.0, 1.0])
+
+
 def collect(engine: Engine, examples: list[Example]) -> list[tuple[Example, str, tuple[str, ...], np.ndarray]]:
     rows = []
     for example in examples:
         request = SystemOneRequest(state=example.state, questions={"q": example.question})
         kind = request.questions["q"].type
+        if kind == "multi":
+            raise ValueError("eval and calibrate do not support multi questions yet (one label cannot score "
+                             "per-option answers); split them into one noul per option")
         keys, logits = engine.raw_logits(example.state, "q", request.questions["q"])
         rows.append((example, kind, keys, logits))
     return rows
@@ -122,9 +135,7 @@ def evaluate(engine: Engine, examples: list[Example], rows: list[dict] | None = 
         else:
             p = softmax(logits, engine.calibrator.temperature_for(kind))
         label = _noul_keys_label(example.label) if kind in {"noul", "multi"} else example.label
-        target = _target_vector(example, keys) if kind not in {"noul", "multi"} else np.asarray(
-            [1.0 if label == "yes" else 0.0, 0.0 if label == "yes" else 1.0]
-        )
+        target = _noul_target(example) if kind in {"noul", "multi"} else _target_vector(example, keys)
         predicted = keys[int(p.argmax())]
         hit = predicted == label
         confidences.append(float(p.max()))
@@ -157,11 +168,7 @@ def calibrate(engine: Engine, examples: list[Example], source: str | None = None
     calibrator = Calibrator(fitted_on=source)
     by_kind: dict[str, tuple[list[np.ndarray], list[np.ndarray]]] = {}
     for example, kind, keys, logits in collected:
-        if kind in {"noul", "multi"}:
-            label = _noul_keys_label(example.label)
-            target = np.asarray([1.0 if label == "yes" else 0.0, 0.0 if label == "yes" else 1.0])
-        else:
-            target = _target_vector(example, keys)
+        target = _noul_target(example) if kind in {"noul", "multi"} else _target_vector(example, keys)
         logits_list, targets_list = by_kind.setdefault(kind, ([], []))
         logits_list.append(np.asarray(logits))
         targets_list.append(target)

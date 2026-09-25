@@ -119,10 +119,10 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
   with a warning); test with a 30-unit state.
 - [x] **M7** Pass option offsets from `render` to the pointer head instead of re-parsing
   `A) `. (No escaping: prompts stay byte-identical, so no suite re-run is needed for M4 or M7.)
-- [ ] **M8** Reject `multi` examples in eval/calibrate with a clear error (per-option labels
+- [x] **M8** Reject `multi` examples in eval/calibrate with a clear error (per-option labels
   are post-release).
-- [ ] **M9** Use the normalized soft target for nouls in metrics and Platt fitting.
-- [ ] **M10** `coverage_at_error` evaluates groups of equal confidence together; test
+- [x] **M9** Use the normalized soft target for nouls in metrics and Platt fitting.
+- [x] **M10** `coverage_at_error` evaluates groups of equal confidence together; test
   `[0.9, 0.9]` / `[1, 0]`.
 - [ ] **M12** Extraction deletes stale `heldout.npz` / `test.npz` and writes a manifest
   fingerprint; consumers check it.

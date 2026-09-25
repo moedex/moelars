@@ -86,6 +86,17 @@ def _logistic_loss(z: np.ndarray, y: np.ndarray) -> float:
     return float((np.logaddexp(0.0, z) - y * z).sum())
 
 
+def _platt_targets(labels: np.ndarray) -> np.ndarray:
+    """Platt's smoothed targets for hard 0/1 labels; soft labels (strictly between) pass through."""
+    y = np.asarray(labels, dtype=np.float64).copy()
+    hard = (y == 0.0) | (y == 1.0)
+    n_pos, n_neg = float((y[hard] == 1.0).sum()), float((y[hard] == 0.0).sum())
+    if n_pos and n_neg:
+        y[hard & (y == 1.0)] = (n_pos + 1) / (n_pos + 2)
+        y[hard & (y == 0.0)] = 1 / (n_neg + 2)
+    return y
+
+
 def fit_platt(scores: np.ndarray, labels: np.ndarray, l2: float = 1e-2, iterations: int = 100) -> tuple[float, float]:
     """Fit sigmoid(a * s + b) to binary labels.
 
@@ -101,8 +112,7 @@ def fit_platt(scores: np.ndarray, labels: np.ndarray, l2: float = 1e-2, iteratio
         return 1.0, 0.0
     scale = float(s_raw.std()) or 1.0
     s = s_raw / scale
-    n_pos, n_neg = float(y_raw.sum()), float((1 - y_raw).sum())
-    y = np.where(y_raw > 0.5, (n_pos + 1) / (n_pos + 2), 1 / (n_neg + 2)) if n_pos and n_neg else y_raw
+    y = _platt_targets(y_raw)
 
     def penalized(a: float, b: float) -> float:
         return _logistic_loss(a * s + b, y) + 0.5 * l2 * a * a
@@ -152,8 +162,7 @@ def fit_logistic(
     scale = x_raw.std(axis=0)
     scale[scale == 0] = 1.0
     design = np.hstack([(x_raw - mean) / scale, np.ones((x_raw.shape[0], 1))])
-    n_pos, n_neg = float(y_raw.sum()), float((1 - y_raw).sum())
-    y = np.where(y_raw > 0.5, (n_pos + 1) / (n_pos + 2), 1 / (n_neg + 2)) if n_pos and n_neg else y_raw
+    y = _platt_targets(y_raw)
     penalty = np.full(design.shape[1], l2)
     penalty[-1] = 0.0  # the intercept is not penalized
 
@@ -229,10 +238,14 @@ def coverage_at_error(confidences: np.ndarray, correct: np.ndarray, max_error: f
     hit = np.asarray(correct, dtype=np.float64)
     if conf.size == 0:
         return 0.0, 1.0
-    order = np.argsort(-conf)
+    # A threshold accepts every decision at or above it, so tied confidences enter together:
+    # only the last index of each run of equal values is a threshold that can be reported.
+    order = np.argsort(-conf, kind="stable")
+    ranked, errors = conf[order], np.cumsum(1.0 - hit[order])
     best_cov, best_thr = 0.0, 1.0
     for k in range(1, conf.size + 1):
-        taken = order[:k]
-        if 1.0 - hit[taken].mean() <= max_error:
-            best_cov, best_thr = k / conf.size, float(conf[order[k - 1]])
+        if k < conf.size and ranked[k] == ranked[k - 1]:
+            continue
+        if errors[k - 1] / k <= max_error:
+            best_cov, best_thr = k / conf.size, float(ranked[k - 1])
     return best_cov, best_thr

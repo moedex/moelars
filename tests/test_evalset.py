@@ -94,3 +94,25 @@ def test_cascade_refuses_rows_that_are_different_examples_with_the_same_target()
     assert cascade.combine([row], [row], 0.5, "blend")[0] == 1.0  # dumps from before IDs still combine
     with pytest.raises(ValueError, match="not aligned"):
         cascade.combine([{**row, "id": "a"}], [{**row, "id": "b"}], 0.5, "blend")
+
+
+def test_multi_examples_are_refused_with_a_clear_error(tmp_path):
+    multi = {"type": "multi", "instructions": "Topics?", "criteria": {"a": None, "b": None}}
+    examples = list(read_examples(_write(tmp_path, [{"state": "x", "question": multi, "label": "a"}])))
+    with pytest.raises(ValueError, match="multi"):
+        evaluate(Engine(MockBackend()), examples)
+    with pytest.raises(ValueError, match="multi"):
+        calibrate(Engine(MockBackend()), examples)
+
+
+def test_noul_soft_labels_are_the_brier_target(tmp_path):
+    noul = {"type": "noul", "instructions": "Urgent?"}
+    hard = [{"state": "x", "question": noul, "label": "1"}]
+    soft = [{**hard[0], "soft_label": {"yes": 0.6, "no": 0.4}}]
+    engine = Engine(MockBackend())
+    rows_hard, rows_soft = [], []
+    evaluate(engine, list(read_examples(_write(tmp_path, hard))), rows_hard)
+    evaluate(engine, list(read_examples(_write(tmp_path, soft))), rows_soft)
+    assert rows_hard[0]["target"] == [1.0, 0.0]
+    assert rows_soft[0]["target"] == pytest.approx([0.6, 0.4])
+    assert rows_soft[0]["hit"] == rows_hard[0]["hit"]  # accuracy still scores the hard label

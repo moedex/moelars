@@ -64,17 +64,23 @@ No Critical or High findings were verified. Findings below describe current beha
 
 ### M8. Multi-question examples crash the evaluation and calibration commands
 
+**Status (2026-09-25): fixed.** `eval` and `calibrate` refuse a `multi` example with a `ValueError` naming the fix (one noul per option) instead of an `IndexError`. Scoring per-option labels is post-release.
+
 **Evidence:** `src/moelar/render.py:184-189` labels multi rows `base:<key>`, while `src/moelar/engine.py:104-106` keeps only rows whose variant equals `base` and then indexes the empty result. `src/moelar/evalset.py:90-96` uses this path for both commands. Calling `raw_logits` for a valid two-option `MultiQuestion` raised `IndexError: list index out of range`.
 
 **Impact and trigger:** Any `multi` example in an eval or calibration JSONL stops the command, though the request API supports that question type. **Suggested fix:** Define and collect per-option multi labels for these workflows, or reject multi examples with a clear validation error before evaluation.
 
 ### M9. Noul soft labels are discarded during evaluation and fitting
 
+**Status (2026-09-25): fixed.** Nouls use the normalized soft label as the Brier and Platt target (accuracy still scores the hard label). Platt smoothing now applies to hard 0/1 targets only, so soft targets survive fitting. No committed eval set has noul soft labels, so no published number moves.
+
 **Evidence:** `src/moelar/evalset.py:78-83` can construct a target from `soft_label`, but `:108-116,148-150` substitutes a hard yes/no vector for nouls in both metrics and Platt fitting. A row labeled yes with `soft_label={"yes":0.6,"no":0.4}` is treated as `[1,0]`.
 
 **Impact and trigger:** Noul datasets with human probability labels produce Brier scores and fitted calibrators against a different target than the supplied one. **Suggested fix:** Use the normalized soft target for nouls as for choice/score, or reject and document unsupported soft labels for this kind.
 
 ### M10. Coverage can report a threshold that exceeds its error budget
+
+**Status (2026-09-25): fixed.** `coverage_at_error` only considers cut points at the end of a run of equal confidences, so a reported threshold always accepts exactly the set whose error was checked.
 
 **Evidence:** `src/moelar/calibration.py:156-162` evaluates sorted samples one by one without grouping equal confidence values. For confidences `[0.9, 0.9]`, correctness `[1, 0]`, and a zero error budget, `coverage_at_error` returns `(0.5, 0.9)`; accepting all decisions at threshold 0.9 yields 50% error.
 
