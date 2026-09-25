@@ -66,18 +66,15 @@ Every adapter is retrained on the option-C corpus, so the gate uses the new runs
 seed 0, attention seed 1, and experts seed 0 (`scripts/queue_corpus_c.sh`, then
 `scripts/queue_corpus_c_experts.sh` once the machine has about 100 GB free).
 
-- [ ] Train a second seed of the attention-only adapter on the corpus as it stands after the
-  audit:
-  `python -m moelars.train.lora --model $M30 --keys attn --seed 1 --records ... --out checkpoints/lora-30b-s1`
-  (copy `scripts/queue_30b_lora.sh` into `scripts/queue_30b_lora_s1.sh`, with the
-  `"improved": false` stop kept.)
-- [ ] Suite with `--adapter checkpoints/lora-30b-s1 --tag lora-s1-rows --dump-rows`.
-- [ ] Cascades with `evals/cascade.py`, plus the paired bootstrap from the closeout check
-  (commit it as `evals/bootstrap.py`):
-  - attn s1 alone, compared with attn s0 alone (the seed spread)
-  - **attn s1 + experts** averaged (the replication)
-  - **attn s0 + attn s1** averaged (the control: is the gain from mixing attention-only with
-    experts, or just from ensembling any two runs?)
+- [x] Second seed of the attention-only adapter on corpus C (`checkpoints/lora-30b-c-s1`):
+  0.745 macro, against 0.748 for seed 0.
+- [x] Suites for attn s0, attn s1 and experts, with row dumps.
+- [x] Paired bootstrap, committed as `evals/bootstrap.py` (test rows, 10,000 resamples):
+  - attn s1 against attn s0: -0.3 pts (-1.1 to +0.4). The seeds are indistinguishable.
+  - **attn s1 + experts** against attn s1: +0.4 pts (-0.4 to +1.1). **Gate failed.**
+  - attn s0 + experts against attn s0: -0.2 pts (-0.9 to +0.5).
+  - **attn s0 + attn s1** (the control) against attn s0: +0.5 pts (-0.0 to +1.0), and it
+    beats both mixed pairs.
 
 **Gate:** attn s1 + experts beats attn s1 alone with a bootstrap 95% CI above zero, and the
 choice of averaging over switching is made on validation. If the control does as well as the
@@ -85,7 +82,20 @@ mixed pair, ship whichever pair is cheaper to serve (two attention-only adapters
 If the gate fails, the default is one adapter (s0 or s1, whichever has the better validation
 macro) and averaging goes in the release notes as future work.
 
-### 2b. Serving, only if the gate passes
+**Outcome (2026-09-25): the gate failed; the default is attention seed 1.** The corpus-C
+experts adapter is 0.710 alone (the old-corpus one was 0.751), mostly on
+helpsteer2_verbosity (0.205 against 0.670), chaosnli (0.520 against 0.650),
+measuring_hate_speech and strategyqa_closed. A re-run of attn s0 on those configs with
+the current suite code reproduced its committed numbers exactly, so the harness is not the
+cause. The likely cause is checkpoint selection. Held-out Brier chose step 500, half an
+epoch (0.310, the best held-out score of any run, against 0.330 at step 1000). The
+old-corpus experts run kept its full-epoch checkpoint. Only the selected weights are saved,
+so this is untested. Seeds 0 and 1 answer the same 3,082 validation rows right. Seed 1 has
+the higher validation macro (0.7494 against 0.7493, from configs with fewer validation rows)
+and the better validation Brier (0.3093 against 0.3114), so it is the default. Seed 0 is
+0.003 higher on test, which is not used to choose.
+
+### 2b. Serving, only if the gate passes (it did not: the multi-adapter code stays, with no `30b-duo` preset)
 
 - [x] `MLXBackend` takes several adapters (`moelars.backends.adapters.AdapterSet`; swapping matches each adapter loaded alone, tested on a tiny Qwen3): load the base once, build LoRA layers for the
   union of the adapters' keys (experts ⊇ attention), keep each adapter's weights in memory,
@@ -155,11 +165,11 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
   `--calibration FILE` to `evals/run_suite.py`. Report the pooled number as the headline and
   per-config as secondary. (Raw and per-config calibrated accuracy differ only on
   civil_comments, so expect about 0.75.)
-- [x] `moelars serve --preset 30b` (the `30b-duo` preset gets added only if §2 passes) (also `30b-duo` if §2 passes) resolves the model, the
-  adapter(s) from the Hub (`huggingface_hub.snapshot_download`) and the pooled calibrator.
+- [x] `moelars serve --preset 30b` (no `30b-duo`: §2 failed) resolves the model, the
+  adapter from the Hub (`huggingface_hub.snapshot_download`) and the pooled calibrator.
   `--backend mock` stays the default with no preset. Add a preset smoke test that uses the
   mock backend in CI.
-- [ ] HF Hub: `moedex/moelars-qwen3-30b-a3b-lora-attn` (+ `-experts` or `-attn-s1`), each with
+- [ ] HF Hub: `moedex/moelars-qwen3-30b-a3b-lora-attn` (attention seed 1, `checkpoints/lora-30b-c-s1`), with
   `adapter_config.json`, safetensors, the calibrator, and a model card: base model, recipe and
   seed, training sources and licenses from §5, the jev-bench table, known limitations, and the
   data policy (no Jev-labeled data).
@@ -175,6 +185,10 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
 
 ## Not in this release
 
+- The two-adapter ensemble. Retrain the corpus-C experts adapter keeping the full-epoch
+  checkpoint, or save every evaluated checkpoint, and re-run the §2a gate. Select on
+  validation macro over the suite rather than Brier on four held-out sources; that choice
+  picked the worst suite adapter of the run.
 - Ordinal-aware loss and more score sources (the stsb and mmlu regressions).
 - Molar Triage numbers (`examples/molar_triage/README.md` placeholder).
 - Per-option labels for `multi` in eval/calibrate (M8's full fix).

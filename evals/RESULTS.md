@@ -650,3 +650,28 @@ exceed its 192-token option budget), so the comparison is over the other 21 conf
 - It answers on four CPU threads about as fast as the 30B does on the GPU, at 0.8 GB
   against about 18 GB. It is the better fit where only a CPU is available; the 4B GGUF
   through llama.cpp took about 2.5 s per row on CPU in Docker.
+
+## 2026-09-25: corpus-C attention-plus-experts LoRA, and the two-adapter gate
+
+| system | macro acc | Brier | vs attn s1 (95% CI) |
+|---|---|---|---|
+| attn s1 | 0.745 | 0.310 | baseline |
+| experts | 0.710 | 0.331 | -3.5 pts (-4.7 to -2.4) |
+| attn s1 + experts | 0.749 | 0.306 | +0.4 pts (-0.4 to +1.1) |
+| attn s0 + experts | 0.746 | 0.305 | +0.1 pts (-0.7 to +1.0) |
+| attn s0 + attn s1 | 0.753 | 0.301 | +0.8 pts (+0.3 to +1.4) |
+
+- The gate (`CLOSEOUT.md` §2a) fails: attn s1 + experts is not above attn s1. The mixed
+  pairs also fall below the two attention seeds averaged.
+- The corpus-C experts adapter is 0.710 alone, against 0.751 for the old-corpus one. The
+  loss is concentrated in a few configs (helpsteer2_verbosity 0.205 against 0.670 for attn
+  s0; chaosnli 0.520 against 0.650). Raw accuracy drops the same way, so it is the adapter,
+  not calibration. A re-run of attn s0 on those two configs with the current suite code
+  reproduced its committed numbers exactly.
+- Held-out Brier on the four held-out sources picked step 500 (0.310, the best held-out
+  score of any run, against 0.330 at step 1000). The old-corpus experts run kept step 1000.
+  Only the selected weights are saved, so whether a full epoch recovers the adapter is
+  untested.
+- The default is one adapter, attention seed 1: the same validation hits as seed 0
+  (3,082), with a higher validation macro (0.7494 against 0.7493) and a better validation
+  Brier (0.3093 against 0.3114).

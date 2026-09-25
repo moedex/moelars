@@ -1,0 +1,16 @@
+{
+  "temperatures": {
+    "noul": 1.0,
+    "choice": 1.0,
+    "score": 1.0,
+    "multi": 1.0
+  },
+  "platt": {
+    "noul": [
+      0.9254392893167054,
+      0.8675476581843924
+    ]
+  },
+  "fusion": {},
+  "fitted_on": "jev-bench/sms_spam/validation[:200]"
+}
