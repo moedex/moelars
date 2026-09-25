@@ -111,12 +111,14 @@ and the better validation Brier (0.3093 against 0.3114), so it is the default. S
 
 ## 3. Score-task regressions: document them
 
-- [ ] A table in `evals/RESULTS.md` and the release notes with every config that the shipped
-  default scores below the zero-shot 30B. Currently that includes stsb 0.425 → 0.350 and mmlu
-  0.780 → 0.750, and the experts adapter drops stsb further to 0.275.
-- [ ] State the headline honestly: civil_comments is worth about 1.8 macro points; without it
-  the lead over Jev is about 1 point, inside the noise. Our numbers use 200 test rows per
-  config; Jev's use full splits.
+- [x] A table in `evals/RESULTS.md` (2026-09-25, as served) of every config where the shipped
+  default (attention seed 1, pooled calibrator) scores below the zero-shot 30B: six, none by
+  more than 2 points. stsb no longer regresses (0.455 against 0.425), since corpus C does not
+  train on it.
+- [x] Headline stated honestly: 0.743 as served against Jev's 0.733; 0.735 against 0.733
+  without civil_comments, a tie. Below Jev on 14 of 22 configs. The clear win is calibration
+  (Brier 0.317 against 0.349). Seeds tie on macro but move single configs by up to 9.5
+  points (ledgar, stsb). Our numbers use 200 test rows per config; Jev's use full splits.
 - [ ] Ordinal loss and more score sources go on the post-release list (below).
 
 ## 4. Code-review Mediums (no GPU; alongside Phase 1)
@@ -160,7 +162,7 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
 
 ## 6. Release (Phase 3)
 
-- [ ] **Calibrator as served.** (`run_suite.py --calibration FILE` done; fit and report pending.) Per-config calibrators can't be used for arbitrary requests.
+- [x] **Calibrator as served.** Fitted on 4,120 pooled validation rows (`calibration/served/lora-30b-c-s1.json`): 0.743 macro, Brier 0.317, ECE 0.090, against 0.745 / 0.310 / 0.073 per-config. Per-config calibrators can't be used for arbitrary requests.
   Fit one pooled calibrator over all configs' validation rows for the shipped default and add
   `--calibration FILE` to `evals/run_suite.py`. Report the pooled number as the headline and
   per-config as secondary. (Raw and per-config calibrated accuracy differ only on

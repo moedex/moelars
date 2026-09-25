@@ -1,0 +1,16 @@
+{
+  "temperatures": {
+    "noul": 1.0,
+    "choice": 1.3005451630673341,
+    "score": 1.7041648496360604,
+    "multi": 1.0
+  },
+  "platt": {
+    "noul": [
+      0.6563301409549899,
+      -0.17322866470060025
+    ]
+  },
+  "fusion": {},
+  "fitted_on": "jev-bench/22 configs/validation[:200] pooled"
+}

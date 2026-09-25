@@ -675,3 +675,45 @@ exceed its 192-token option budget), so the comparison is over the other 21 conf
 - The default is one adapter, attention seed 1: the same validation hits as seed 0
   (3,082), with a higher validation macro (0.7494 against 0.7493) and a better validation
   Brier (0.3093 against 0.3114).
+
+## 2026-09-25: the v0.1.0 default as served
+
+Attention LoRA seed 1 (corpus C) with one calibrator for every config, fitted on the pooled
+validation rows of all 22 configs (4,120 rows; `calibration/served/lora-30b-c-s1.json`),
+which is what `moelars serve --preset 30b` loads:
+
+| calibration | macro acc | Brier | ECE |
+|---|---|---|---|
+| pooled, as served | **0.743** | **0.317** | 0.090 |
+| per config (the numbers above) | 0.745 | 0.310 | 0.073 |
+| Jev (published) | 0.733 | 0.349 | 0.113 |
+
+The pooled calibrator costs little accuracy and some ECE, most on go_emotions, the
+helpsteer2 pair and strategyqa_closed, whose best temperatures differ from the pool's.
+civil_comments drops from 0.940 to 0.910.
+
+How to read the headline:
+
+- Without civil_comments it is 0.735 against Jev's 0.733, a tie. The default is below Jev
+  on 14 of 22 configs; the macro is carried by large wins on go_emotions,
+  helpsteer2_verbosity, measuring_hate_speech and civil_comments. The clear win is
+  calibration: Brier 0.317 against 0.349.
+- Seeds 0 and 1 tie on macro but swap single configs: seed 1 is 9.5 points lower on ledgar
+  and 8.5 higher on stsb, and validation shows the same. Per-config numbers carry seed
+  variance of that size.
+- Our numbers use 200 test rows per config; Jev's use full splits.
+
+Configs where the default scores below the zero-shot 30B (both calibrated; the zero-shot
+per config):
+
+| config | prim | zero-shot 30B | v0.1.0 default | change | Jev |
+|---|---|---|---|---|---|
+| civil_comments | noul | 0.930 | 0.910 | -0.020 | 0.729 |
+| chaosnli | choice | 0.665 | 0.650 | -0.015 | 0.615 |
+| helpsteer2_helpfulness | score | 0.390 | 0.375 | -0.015 | 0.363 |
+| mmlu | choice | 0.780 | 0.775 | -0.005 | 0.923 |
+| paws | noul | 0.840 | 0.835 | -0.005 | 0.846 |
+| strategyqa_grounded | noul | 0.910 | 0.905 | -0.005 | 0.956 |
+
+None is outside test-row noise at 200 rows. The stsb regression of the old corpus (0.425 to
+0.350) is gone at 0.455: corpus C does not train on stsb.
