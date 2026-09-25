@@ -126,11 +126,35 @@ tests/             unit tests plus a conformance test that runs the official SDK
 evals/             benchmark data conventions and a jev-bench fetcher
 ```
 
+## Results
+
+jev-bench, 22 configs, 200 test rows each, per-config calibration fitted on validation.
+Jev's numbers are quoted from jev-bench's published jev-1.13.0 run on full splits.
+
+| configuration | macro acc | Brier | ECE |
+|---|---|---|---|
+| Jev (published) | 0.733 | 0.349 | 0.113 |
+| Qwen3-4B zero-shot | 0.662 | 0.404 | 0.088 |
+| Qwen3-4B + LoRA | 0.731 | 0.317 | 0.074 |
+| Qwen3-30B-A3B zero-shot | 0.680 | 0.372 | 0.079 |
+| **Qwen3-30B-A3B + attention LoRA** | **0.752** | 0.295 | 0.060 |
+| Qwen3-30B-A3B + attention-plus-experts LoRA | 0.751 | 0.286 | 0.072 |
+| both 30B adapters averaged (simulated from row dumps) | 0.765 | 0.282 | |
+
+- A paired bootstrap over test rows puts the attention LoRA 1.9 points above Jev (95% CI
+  0.7 to 3.1) and averaging both adapters 1.3 above it alone (0.7 to 1.9). Neither covers
+  seed variance; a second seed is in `CLOSEOUT.md`.
+- civil_comments (calibrated 0.930, the majority baseline) is worth about 1.8 macro points;
+  without it the attention LoRA is 0.743 against Jev's 0.733.
+- LoRA regresses stsb (0.425 to 0.350 on the 30B) and mmlu (0.780 to 0.750).
+
+Full tables in `evals/RESULTS.md`, newest section last.
+
 ## Status
 
-Pre-alpha. The mock backend and the HTTP contract are tested. The MLX backend has been
-run on Apple Silicon with Qwen3-4B-Instruct and Qwen3.5-9B and benchmarked on all 22
-jev-bench configs, with and without a Tier B head; see `evals/RESULTS.md`. The llama.cpp
+Pre-alpha, closing out to v0.1.0 (`CLOSEOUT.md`). The mock backend and the HTTP contract
+are tested. The MLX backend has been run on Apple Silicon with Qwen3-4B, Qwen3.5-9B and
+Qwen3-30B-A3B, zero-shot, with Tier B heads, and with LoRA adapters. The llama.cpp
 backend is written against its library's documented API and still needs a hardware pass.
 See `DESIGN.md` for the architecture, the reasoning, and the roadmap.
 
