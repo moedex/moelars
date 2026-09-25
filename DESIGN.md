@@ -256,6 +256,37 @@ built from public documentation and public reimplementations and stays that way:
 - Published Jev numbers are quoted from third parties who measured them, never
   reproduced here.
 
+### 8.1 Training-data licenses (audited 2026-09-25)
+
+Checked against upstream owners' licenses, cards and terms, not mirrors. No training row
+carries Jev or TypeSafe outputs. Open-Jev's rows are synthetic controls, tasksource-jev's
+labels come from the original datasets, and jev-bench's training rows use human gold labels
+and vote shares.
+
+| source (rows in `data/train`) | license | commercial weights |
+|---|---|---|
+| open-jev/train, customer-control-v1 (4000) | CC0 1.0; question wording adapted from TypeSafe docs, license not verified | yes |
+| tasksource-jev/anli/a1-a3 (3300) | CC BY-NC 4.0 | **no** |
+| tasksource-jev/babi_nli (600) | BSD | yes |
+| tasksource-jev/glue/mnli (100), jev-bench/mnli (300) | MultiNLI: mostly OANC, some CC BY-SA 3.0 / CC BY 3.0 | yes, attribute |
+| jev-bench/yelp5 (300) | Yelp Dataset Agreement: non-commercial, Yelp owns derivatives, no sublicensing | **no, not redistributable** |
+| jev-bench/sst5 (300) | none stated anywhere | unverified |
+| jev-bench/stsb (300) | scores CC BY-SA 4.0; MSRpar/MSRvid sentences under Microsoft terms | unverified |
+| jev-bench/arc_challenge, boolq, fever_evidence (300 each) | CC BY-SA 4.0 / 3.0 / 3.0 | yes, attribute, share-alike |
+| jev-bench/banking77, massive, ledgar, helpsteer2 x2, measuring_hate_speech, sms_spam (300 each) | CC BY 4.0 | yes, attribute |
+| jev-bench/clinc150 (300) | CC BY 3.0 | yes, attribute |
+| jev-bench/go_emotions (300) | Apache 2.0 | yes |
+| jev-bench/paws (300) | free for any purpose (Google) | yes |
+| jev-bench/civil_comments (300) | CC0 1.0 | yes |
+| jev-bench/strategyqa x2 (300 each), mmlu (285) | MIT | yes |
+
+Published weights are trained on `data/train-c` (`scripts/build_corpus_c.py`): the
+corpus above without yelp5, sst5, stsb and ANLI (4,200 rows), with 3,300 SNLI choice rows
+(CC BY-SA 4.0, human labels) from tasksource-jev at a pinned revision in their place, for
+13,385 rows. The yelp5, sst5 and stsb evals are then held-out forms for those adapters.
+Whether share-alike terms reach trained weights is untested; the adapters are published
+under Apache 2.0 with every source attributed in the model card.
+
 ## 9. Related work
 
 **Jevify** (`uspraveen/Jevify`, the engine behind jev-bench) is the closest existing

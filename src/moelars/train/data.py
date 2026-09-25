@@ -9,7 +9,8 @@ One record is one typed decision:
   optional parallel `descriptions` list; for score the ordered level descriptions
 - `target`: probability distribution aligned with `options` (sums to 1)
 
-Sources (all license-checked, none labeled by Jev; see DESIGN.md section 8):
+Sources (none labeled by Jev; per-source licenses in DESIGN.md section 8.1, where some are
+non-commercial or unverified; `scripts/build_corpus_c.py` drops those for published weights):
 
 - ZefanCai/Open-Jev (CC0). Options come as "key: description" strings for choice, as
   ["no", "yes"] for noul with target [P(no), P(yes)], and as level texts for score.

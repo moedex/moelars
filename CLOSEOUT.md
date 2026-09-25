@@ -60,7 +60,11 @@ then 4B routed to the 30B.
 
 ## 2. Two adapters on one 30B
 
-### 2a. Confirm the gain is real (GPU, about 3 h)
+### 2a. Confirm the gain is real (GPU, on `data/train-c`; see §5)
+
+Every adapter is retrained on the option-C corpus, so the gate uses the new runs: attention
+seed 0, attention seed 1, and experts seed 0 (`scripts/queue_corpus_c.sh`, then
+`scripts/queue_corpus_c_experts.sh` once the machine has about 100 GB free).
 
 - [ ] Train a second seed of the attention-only adapter on the corpus as it stands after the
   audit:
@@ -133,18 +137,16 @@ Each fix gets a test and a status line in `CODEBASE-REVIEW.md`, same format as M
 
 ## 5. Data license audit (Phase 0, blocks the weights)
 
-- [ ] A per-source table in `DESIGN.md` section 8: upstream dataset, license, whether it
-  allows derivative weights, and whether commercial use is OK. Known items to check:
-  - `tasksource-jev/anli/*` (3,300 of 4,000 tasksource train rows): ANLI is, as I recall,
-    CC BY-NC 4.0.
-  - `jev-bench/yelp5`: Yelp Dataset terms.
-  - `jev-bench/ledgar`, `jev-bench/fever_evidence`: CC BY-SA (share-alike).
-  - the rest of the 21 jev-bench configs, `babi_nli`, `glue/mnli`, and Open-Jev (CC0) to
-    confirm.
-- [ ] **Decide per source:** keep it (and note it in the model card), mark the weights as
-  non-commercial, or drop it and retrain. Dropping any source means retraining both adapters
-  (135 + 169 min plus suites) before §2a, and redoing §3's numbers.
-- [ ] Qwen3-30B-A3B base is Apache 2.0; the model card credits it.
+- [x] Per-source table in `DESIGN.md` §8.1 (2026-09-25). ANLI is CC BY-NC 4.0 (3,300 rows);
+  yelp5's terms forbid redistributing derived work; sst5 and stsb could not be verified;
+  LEDGAR is CC BY 4.0 (not share-alike). Everything else is permissive, with attribution.
+- [x] **Decision (2026-09-25): option C.** Drop yelp5, sst5, stsb and ANLI (4,200 rows) and
+  backfill 3,300 SNLI choice rows (CC BY-SA 4.0), giving `data/train-c` with 13,385 rows
+  (`scripts/build_corpus_c.py`, tasksource-jev pinned at `18332e5`). Adapters get Apache
+  2.0 with attributions.
+- [ ] Retrain on `data/train-c`: attention seed 0 and seed 1, then experts. These replace the
+  §2a runs; the old adapters stay research-only and unpublished.
+- [ ] Qwen3-30B-A3B base is Apache 2.0; the model card credits it and every §8.1 source.
 
 ## 6. Release (Phase 3)
 
